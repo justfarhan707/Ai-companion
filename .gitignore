@@ -1,40 +1,36 @@
-# gradle
-
+# Gradle / Java
 .gradle/
 build/
 out/
-classes/
+*.class
 
-# eclipse
+# Fabric / Minecraft runtime
+run/
+logs/
+crash-reports/
+saves/
+options.txt
+usercache.json
+usernamecache.json
 
-*.launch
+# Node backend
+backend/node_modules/
+backend/dist/
+backend/.env
+backend/.env.*
+!backend/.env.example
 
-# idea
+# TypeScript build artifacts accidentally emitted into src
+backend/src/**/*.js
+backend/src/**/*.js.map
+backend/src/**/*.d.ts
+backend/src/**/*.d.ts.map
 
+# IDE
 .idea/
 *.iml
-*.ipr
-*.iws
-
-# vscode
-
-.settings/
 .vscode/
-bin/
-.classpath
-.project
 
-# macos
-
-*.DS_Store
-
-# fabric
-
-run/
-
-# java
-
-hs_err_*.log
-replay_*.log
-*.hprof
-*.jfr
+# OS
+.DS_Store
+Thumbs.db
