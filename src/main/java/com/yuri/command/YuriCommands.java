@@ -1,3 +1,4 @@
+//commands of yuri in minecraft
 package com.yuri.command;
 
 import com.mojang.brigadier.CommandDispatcher;

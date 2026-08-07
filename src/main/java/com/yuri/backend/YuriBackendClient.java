@@ -1,3 +1,4 @@
+//this file talks to node js backend
 package com.yuri.backend;
 
 import com.google.gson.JsonObject;
@@ -12,6 +13,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.net.http.HttpTimeoutException;
 import java.util.stream.Collectors;
 
 public class YuriBackendClient {
@@ -82,7 +84,7 @@ public class YuriBackendClient {
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create("http://localhost:3001/chat"))
-                .timeout(Duration.ofSeconds(5))
+                .timeout(Duration.ofSeconds(30))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(json))
                 .build();
@@ -101,6 +103,8 @@ public class YuriBackendClient {
             }
 
             return new BackendChatResponse(true, reply);
+        } catch (HttpTimeoutException exception) {
+            return new BackendChatResponse(false, "Yuri took too long to think. Try again in a moment.");
         } catch (IOException exception) {
             return new BackendChatResponse(false, "Yuri backend is offline: " + exception.getMessage());
         } catch (InterruptedException exception) {
@@ -144,5 +148,82 @@ public class YuriBackendClient {
     }
 
     public record BackendHealth(boolean online, String message) {
+    }
+
+    public record BackendEventResponse(boolean success, String body) {
+    }
+
+//starts a new thread so game doesnt stuttur in java terms its a promise it accepts params
+    public CompletableFuture<BackendEventResponse> sendPlayerStateUpdatedAsync(
+            String playerName,
+            String world,
+            int x,
+            int y,
+            int z,
+            YuriWorldSensor.NearbyContext nearby,
+            float health,
+            long gameTime
+    ) {
+        //after getting patrams run this funttion on diff thread
+        return CompletableFuture.supplyAsync(() -> sendPlayerStateUpdated(
+                playerName,
+                world,
+                x,
+                y,
+                z,
+                nearby,
+                health,
+                gameTime
+        ));
+    }
+
+// and this is the function which is supossed to run on diff thread
+    private BackendEventResponse sendPlayerStateUpdated(
+            String playerName,
+            String world,
+            int x,
+            int y,
+            int z,
+            YuriWorldSensor.NearbyContext nearby,
+            float health,
+            long gameTime
+    ) {
+        String json = "{"
+                + "\"type\":\"PlayerStateUpdated\","
+                + "\"player\":{"
+                + "\"name\":\"" + escapeJson(playerName) + "\","
+                + "\"world\":\"" + escapeJson(world) + "\","
+                + "\"x\":" + x + ","
+                + "\"y\":" + y + ","
+                + "\"z\":" + z
+                + "},"
+                + "\"nearby\":{"
+                + "\"entities\":" + toJsonStringArray(nearby.entities()) + ","
+                + "\"blocks\":" + toJsonBlocksArray(nearby.blocks())
+                + "},"
+                + "\"health\":" + health + ","
+                + "\"gameTime\":" + gameTime
+                + "}";
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create("http://localhost:3001/events"))
+                .timeout(Duration.ofSeconds(3))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(json))
+                .build();
+
+        try {
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                return new BackendEventResponse(false, "");
+            }
+
+            return new BackendEventResponse(true, response.body());
+        } catch (IOException exception) {
+            return new BackendEventResponse(false, "");
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            return new BackendEventResponse(false, "");
+        }
     }
 }

@@ -1,11 +1,31 @@
+import "dotenv/config";
+import { GeminiProvider } from "./ai/GeminiProvider.js";
 import express from "express";
 import cors from "cors";
 import { MockLlmProvider } from "./ai/MockLlmProvider.js";
 import type { ChatRequest } from "./types/chat.js";
+import { EventRouter } from "./events/EventRouter.js";
+import { LiveStateStore } from "./state/LiveStateStore.js";
+import type { GameEvent } from "./types/events.js";
+import { ReactionEngine } from "./reactions/ReactionEngine.js";
+import { ChatterCooldownStore } from "./chatter/ChatterCooldownStore.js";
+import { ReactionSpeechGenerator } from "./reactions/ReactionSpeechGenerator.js";
+import { LongTermMemoryStore } from "./memory/LongTermMemoryStore.js";
+import { SignificantMemoryDetector } from "./memory/SignificantMemoryDetector.js";
+
 
 const app = express();
 const port = 3001;
-const llmProvider = new MockLlmProvider();
+const llmProvider = process.env.LLM_PROVIDER === "gemini"
+    ? new GeminiProvider()
+    : new MockLlmProvider();
+const liveStateStore = new LiveStateStore();
+const eventRouter = new EventRouter(liveStateStore);// give eventrouter the liveStatestore object
+const reactionEngine = new ReactionEngine();
+const chatterCooldownStore = new ChatterCooldownStore();
+const reactionSpeechGenerator = new ReactionSpeechGenerator(llmProvider);
+const longTermMemoryStore = new LongTermMemoryStore();
+const significantMemoryDetector = new SignificantMemoryDetector();
 
 app.use(cors());
 app.use(express.json());
@@ -27,30 +47,125 @@ app.post("/chat", async (req, res) => {
         return;
     }
 
-    const response = await llmProvider.chat({
-        message: String(request.message).trim(),
-        player: {
-            name: String(request.player.name),
-            world: String(request.player.world),
-            x: Number(request.player.x),
-            y: Number(request.player.y),
-            z: Number(request.player.z),
-        },
-        nearby: {
-            entities: Array.isArray(request.nearby.entities)
-                ? request.nearby.entities.map(String)
-                : [],
-            blocks: Array.isArray(request.nearby.blocks)
-                ? request.nearby.blocks.map((block) => ({
-                    name: String(block.name),
-                    count: Number(block.count),
-                }))
-                : [],
-        },
-    });
+    try {
+        const chatRequest: ChatRequest = {
+            message: String(request.message).trim(),
+            player: {
+                name: String(request.player.name),
+                world: String(request.player.world),
+                x: Number(request.player.x),
+                y: Number(request.player.y),
+                z: Number(request.player.z),
+            },
+            nearby: {
+                entities: Array.isArray(request.nearby.entities)
+                    ? request.nearby.entities.map(String)
+                    : [],
+                blocks: Array.isArray(request.nearby.blocks)
+                    ? request.nearby.blocks.map((block) => ({
+                        name: String(block.name),
+                        count: Number(block.count),
+                    })) 
+                    : [],
+            },
+        };
 
-    res.json(response);
+        const response = await llmProvider.chat({
+            request: chatRequest,
+            liveState: liveStateStore.get(chatRequest.player.name),
+        });
+
+        res.json(response);
+    } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown backend error";
+
+        res.status(503).json({
+            reply: "I'm having trouble thinking right now. Try again in a moment.",
+            emotion: "friendly",
+            actions: [],
+            error: message,
+        });
+    }
 });
+
+app.post("/events", async (req, res) => {
+	const event = req.body as GameEvent;
+
+	if (!event.type) {
+		res.status(400).json({ error: "event type is required" });
+		return;
+	}
+
+	console.log("Event received:", event.type, event.player.name);
+
+	const state = eventRouter.handle(event);
+    const actions = [];
+    const memories = [];
+    const recalledMemories = [];
+
+    if (state && "player" in state) {
+        const detectedMemories = significantMemoryDetector.detect(state);
+
+        for (const memory of detectedMemories) {
+            longTermMemoryStore.add(memory);
+            memories.push(memory);
+        }
+
+    	const intents = reactionEngine.evaluate(state);
+
+    	for (const intent of intents) {
+    		if (!chatterCooldownStore.canSpeak(state.player.name, intent)) {
+    			continue;
+    		}
+
+            const relevantMemories = longTermMemoryStore.findRelevant(
+                state.player.name,
+                memoryTagsForReaction(intent.reason),
+            );
+            recalledMemories.push(...relevantMemories);
+
+    		actions.push(await reactionSpeechGenerator.generate(
+                state.player.name,
+                state,
+                intent,
+                relevantMemories,
+            ));
+    	}
+    }
+
+    res.json({
+    	accepted: true,
+    	state,
+    	actions,
+        memories,
+        recalledMemories,
+    });
+});
+
+app.get("/memory/:playerName", (req, res) => {
+    const playerName = req.params.playerName;
+
+    res.json({
+        playerName,
+        memories: longTermMemoryStore.getForPlayer(playerName),
+    });
+});
+
+function memoryTagsForReaction(reason: string): string[] {
+    switch (reason) {
+        case "PLAYER_LOW_HEALTH_WITH_HOSTILES":
+            return ["danger", "near_death", "hostile_mobs"];
+
+        case "HOSTILE_MOBS_NEARBY":
+            return ["danger", "hostile_mobs", "near_death"];
+
+        case "CREEPER_NEARBY":
+            return ["danger", "hostile_mobs", "near_death"];
+
+        default:
+            return [];
+    }
+}
 
 app.listen(port, () => {
     console.log(`Yuri backend listening on http://localhost:${port}`);

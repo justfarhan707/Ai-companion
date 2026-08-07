@@ -1,3 +1,4 @@
+// to control the cat that is being spwaned
 package com.yuri.companion;
 
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
