@@ -1,5 +1,5 @@
 import type { PlayerStateUpdatedEvent } from "../types/events.js";
-import type { LiveStateTypes, DangerLevel } from "./LiveStateTypes.js";
+import type { DangerLevel, LiveStateTypes } from "./LiveStateTypes.js";
 
 export class LiveStateStore {
 	private readonly states = new Map<string, LiveStateTypes>();
@@ -9,6 +9,9 @@ export class LiveStateStore {
 			player: event.player,
 			nearby: event.nearby,
 			health: event.health,
+			hunger: event.hunger,
+			selectedItem: event.selectedItem,
+			inventory: event.inventory,
 			gameTime: event.gameTime,
 			danger: this.estimateDanger(event),
 			updatedAt: new Date().toISOString(),

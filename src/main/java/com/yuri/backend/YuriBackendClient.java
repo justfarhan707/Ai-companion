@@ -30,9 +30,23 @@ public class YuriBackendClient {
             int x,
             int y,
             int z,
-            YuriWorldSensor.NearbyContext nearby
+            YuriWorldSensor.NearbyContext nearby,
+            int hunger,
+            String selectedItem,
+            YuriWorldSensor.InventorySummary inventory
     ) {
-        return CompletableFuture.supplyAsync(() -> chat(message, playerName, world, x, y, z, nearby));
+        return CompletableFuture.supplyAsync(() -> chat(
+                message,
+                playerName,
+                world,
+                x,
+                y,
+                z,
+                nearby,
+                hunger,
+                selectedItem,
+                inventory
+        ));
     }
 
     public BackendHealth checkHealth() {
@@ -65,7 +79,10 @@ public class YuriBackendClient {
             int x,
             int y,
             int z,
-            YuriWorldSensor.NearbyContext nearby
+            YuriWorldSensor.NearbyContext nearby,
+            int hunger,
+            String selectedItem,
+            YuriWorldSensor.InventorySummary inventory
     ) {
         String json = "{"
                 + "\"message\":\"" + escapeJson(message) + "\","
@@ -78,8 +95,12 @@ public class YuriBackendClient {
                 + "},"
                 + "\"nearby\":{"
                 + "\"entities\":" + toJsonStringArray(nearby.entities()) + ","
+                + "\"entityDetails\":" + toJsonEntityDetailsArray(nearby.entityDetails()) + ","
                 + "\"blocks\":" + toJsonBlocksArray(nearby.blocks())
-                + "}"
+                + "},"
+                + "\"hunger\":" + hunger + ","
+                + "\"selectedItem\":\"" + escapeJson(selectedItem) + "\","
+                + "\"inventory\":" + toJsonInventory(inventory)
                 + "}";
 
         HttpRequest request = HttpRequest.newBuilder()
@@ -162,7 +183,11 @@ public class YuriBackendClient {
             int z,
             YuriWorldSensor.NearbyContext nearby,
             float health,
+            int hunger,
+            String selectedItem,
+            YuriWorldSensor.InventorySummary inventory,
             long gameTime
+
     ) {
         //after getting patrams run this funttion on diff thread
         return CompletableFuture.supplyAsync(() -> sendPlayerStateUpdated(
@@ -173,6 +198,9 @@ public class YuriBackendClient {
                 z,
                 nearby,
                 health,
+                hunger,
+                selectedItem,
+                inventory,
                 gameTime
         ));
     }
@@ -186,6 +214,9 @@ public class YuriBackendClient {
             int z,
             YuriWorldSensor.NearbyContext nearby,
             float health,
+            int hunger,
+            String selectedItem,
+            YuriWorldSensor.InventorySummary inventory,
             long gameTime
     ) {
         String json = "{"
@@ -199,9 +230,13 @@ public class YuriBackendClient {
                 + "},"
                 + "\"nearby\":{"
                 + "\"entities\":" + toJsonStringArray(nearby.entities()) + ","
+                + "\"entityDetails\":" + toJsonEntityDetailsArray(nearby.entityDetails()) + ","
                 + "\"blocks\":" + toJsonBlocksArray(nearby.blocks())
                 + "},"
                 + "\"health\":" + health + ","
+                + "\"hunger\":" + hunger + ","
+                + "\"selectedItem\":\"" + escapeJson(selectedItem) + "\","
+                + "\"inventory\":" + toJsonInventory(inventory) + ","
                 + "\"gameTime\":" + gameTime
                 + "}";
 
@@ -226,4 +261,28 @@ public class YuriBackendClient {
             return new BackendEventResponse(false, "");
         }
     }
+
+
+    private static String toJsonEntityDetailsArray(List<YuriWorldSensor.NearbyEntity> entities) {
+        return entities.stream()
+                .map(entity -> "{"
+                        + "\"name\":\"" + escapeJson(entity.name()) + "\","
+                        + "\"distance\":" + String.format(java.util.Locale.US, "%.2f", entity.distance())
+                        + "}")
+                .collect(Collectors.joining(",", "[", "]"));
+    }
+
+    private static String toJsonInventory(YuriWorldSensor.InventorySummary inventory) {
+        return "{"
+                + "\"foodItems\":" + inventory.foodItems().stream()
+                .map(item -> "{"
+                        + "\"name\":\"" + escapeJson(item.name()) + "\","
+                        + "\"count\":" + item.count()
+                        + "}")
+                .collect(Collectors.joining(",", "[", "]"))
+                + ","
+                + "\"totalFoodCount\":" + inventory.totalFoodCount()
+                + "}";
+    }
+
 }

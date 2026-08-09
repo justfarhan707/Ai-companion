@@ -105,6 +105,9 @@ public class YuriCommands {
 									String playerName = player.getName().getString();
 									String world = player.getWorld().getRegistryKey().getValue().toString();
 									YuriWorldSensor.NearbyContext nearby = worldSensor.scanNearby(player);
+									int hunger = player.getHungerManager().getFoodLevel();
+									String selectedItem = worldSensor.selectedItemName(player);
+									YuriWorldSensor.InventorySummary inventory = worldSensor.scanInventory(player);
 
 									context.getSource().sendFeedback(() -> Text.literal("Yuri is thinking..."), false);
 
@@ -115,7 +118,10 @@ public class YuriCommands {
 													pos.getX(),
 													pos.getY(),
 													pos.getZ(),
-													nearby
+													nearby,
+													hunger,
+													selectedItem,
+													inventory
 											)
 											.thenAccept(response -> server.execute(() -> {
 												if (!response.success()) {

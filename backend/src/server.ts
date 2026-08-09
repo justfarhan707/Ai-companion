@@ -12,6 +12,9 @@ import { ChatterCooldownStore } from "./chatter/ChatterCooldownStore.js";
 import { ReactionSpeechGenerator } from "./reactions/ReactionSpeechGenerator.js";
 import { LongTermMemoryStore } from "./memory/LongTermMemoryStore.js";
 import { SignificantMemoryDetector } from "./memory/SignificantMemoryDetector.js";
+import type { YuriAction } from "./types/actions.js";
+import type { MemoryRecord } from "./memory/MemoryRecord.js";
+import { MessageMemoryTagger } from "./memory/MessageMemoryTagger.js";
 
 
 const app = express();
@@ -26,6 +29,7 @@ const chatterCooldownStore = new ChatterCooldownStore();
 const reactionSpeechGenerator = new ReactionSpeechGenerator(llmProvider);
 const longTermMemoryStore = new LongTermMemoryStore();
 const significantMemoryDetector = new SignificantMemoryDetector();
+const messageMemoryTagger = new MessageMemoryTagger();
 
 app.use(cors());
 app.use(express.json());
@@ -61,6 +65,12 @@ app.post("/chat", async (req, res) => {
                 entities: Array.isArray(request.nearby.entities)
                     ? request.nearby.entities.map(String)
                     : [],
+                entityDetails: Array.isArray(request.nearby.entityDetails)
+                    ? request.nearby.entityDetails.map((entity) => ({
+                        name: String(entity.name),
+                        distance: Number(entity.distance),
+                    }))
+                    : undefined,
                 blocks: Array.isArray(request.nearby.blocks)
                     ? request.nearby.blocks.map((block) => ({
                         name: String(block.name),
@@ -68,14 +78,37 @@ app.post("/chat", async (req, res) => {
                     })) 
                     : [],
             },
+            hunger: request.hunger === undefined ? undefined : Number(request.hunger),
+            selectedItem: request.selectedItem === undefined ? undefined : String(request.selectedItem),
+            inventory: request.inventory
+                ? {
+                    foodItems: Array.isArray(request.inventory.foodItems)
+                        ? request.inventory.foodItems.map((item) => ({
+                            name: String(item.name),
+                            count: Number(item.count),
+                        }))
+                        : [],
+                    totalFoodCount: Number(request.inventory.totalFoodCount ?? 0),
+                }
+                : undefined,
         };
+
+        const memoryTags = messageMemoryTagger.inferTags(chatRequest.message);
+        const relevantMemories = longTermMemoryStore.findRelevant(
+            chatRequest.player.name,
+            memoryTags,
+        );
 
         const response = await llmProvider.chat({
             request: chatRequest,
             liveState: liveStateStore.get(chatRequest.player.name),
+            relevantMemories,
         });
 
-        res.json(response);
+        res.json({
+            ...response,
+            recalledMemories: relevantMemories,
+        });
     } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown backend error";
 
@@ -99,16 +132,16 @@ app.post("/events", async (req, res) => {
 	console.log("Event received:", event.type, event.player.name);
 
 	const state = eventRouter.handle(event);
-    const actions = [];
-    const memories = [];
-    const recalledMemories = [];
+    const actions: YuriAction[] = [];
+    const memories: MemoryRecord[] = [];
+    const recalledMemories: MemoryRecord[] = [];
 
     if (state && "player" in state) {
         const detectedMemories = significantMemoryDetector.detect(state);
 
         for (const memory of detectedMemories) {
-            longTermMemoryStore.add(memory);
-            memories.push(memory);
+            const storedMemory = longTermMemoryStore.addOrReinforce(memory);
+            memories.push(storedMemory);
         }
 
     	const intents = reactionEngine.evaluate(state);
@@ -154,13 +187,25 @@ app.get("/memory/:playerName", (req, res) => {
 function memoryTagsForReaction(reason: string): string[] {
     switch (reason) {
         case "PLAYER_LOW_HEALTH_WITH_HOSTILES":
-            return ["danger", "near_death", "hostile_mobs"];
+            return ["danger", "near_death", "hostile_mobs", "death"];
 
         case "HOSTILE_MOBS_NEARBY":
-            return ["danger", "hostile_mobs", "near_death"];
+            return ["danger", "hostile_mobs", "near_death", "death"];
 
         case "CREEPER_NEARBY":
-            return ["danger", "hostile_mobs", "near_death"];
+            return ["danger", "hostile_mobs", "near_death", "death"];
+
+        case "LAVA_NEARBY":
+            return ["danger", "lava", "cave", "death"];
+
+        case "UNDERGROUND_EXPLORATION":
+            return ["cave", "underground", "exploration", "danger"];
+
+        case "RARE_BLOCK_NEARBY":
+            return ["discovery", "rare_block", "mining"];
+
+        case "LOW_FOOD_WITH_HUNTABLE_ANIMAL":
+        	return ["food", "hunger", "hunting", "survival", "need"];
 
         default:
             return [];

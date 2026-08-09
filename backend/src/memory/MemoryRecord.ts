@@ -1,6 +1,8 @@
 export type MemoryType =
 	| "near_death"
 	| "death"
+	| "lava_danger"
+	| "entered_cave"
 	| "discovery"
 	| "home"
 	| "playstyle";
@@ -20,6 +22,11 @@ export type MemoryRecord = {
 	tags: string[];
 	location: MemoryLocation;
 	importance: number;
+	confidence: number;
+	reinforcementCount: number;
+	recallCount: number;
 	evidence: Record<string, unknown>;
 	createdAt: string;
+	lastUpdatedAt: string;
+	lastRecalledAt?: string;
 };

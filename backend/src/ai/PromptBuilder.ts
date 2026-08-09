@@ -19,32 +19,65 @@ export class PromptBuilder {
 		const liveState = input.liveState;
 
 		const requestEntities = request.nearby.entities.join(", ") || "none";
+		const requestEntityDetails = request.nearby.entityDetails
+			?.map((entity) => `${entity.name} at ${entity.distance.toFixed(1)} blocks`)
+			.join(", ") || "none";
 		const requestBlocks = request.nearby.blocks
 			.map((block) => `${block.name} x${block.count}`)
 			.join(", ") || "none";
+		const requestFoodItems = request.inventory?.foodItems
+			.map((item) => `${item.name} x${item.count}`)
+			.join(", ") || "none";
 
 		const liveEntities = liveState?.nearby.entities.join(", ") || "none";
+		const liveEntityDetails = liveState?.nearby.entityDetails
+			?.map((entity) => `${entity.name} at ${entity.distance.toFixed(1)} blocks`)
+			.join(", ") || "none";
 		const liveBlocks = liveState?.nearby.blocks
 			.map((block) => `${block.name} x${block.count}`)
 			.join(", ") || "none";
+		const liveFoodItems = liveState?.inventory?.foodItems
+			.map((item) => `${item.name} x${item.count}`)
+			.join(", ") || "none";
 		const liveDanger = liveState?.danger ?? "unknown";
 		const liveHealth = liveState?.health ?? "unknown";
+		const liveHunger = liveState?.hunger ?? "unknown";
+		const liveSelectedItem = liveState?.selectedItem ?? "unknown";
+		const liveTotalFoodCount = liveState?.inventory?.totalFoodCount ?? "unknown";
 		const liveUpdatedAt = liveState?.updatedAt ?? "unknown";
+		const memorySection = input.relevantMemories && input.relevantMemories.length > 0
+        	? [
+        		"Relevant memories:",
+        		...input.relevantMemories.map((memory) =>
+        			`- ${memory.summary} Tags: ${memory.tags.join(", ")} Reinforced: ${memory.reinforcementCount} times.`
+        		),
+        	].join("\n")
+        	: "Relevant memories: none.";
 
 		return [
 			"Current Request:",
 			`Player: ${request.player.name}`,
 			`World: ${request.player.world}`,
 			`Position: x=${request.player.x}, y=${request.player.y}, z=${request.player.z}`,
+			`Hunger from request: ${request.hunger ?? "unknown"}`,
+			`Selected item from request: ${request.selectedItem ?? "unknown"}`,
+			`Food in inventory from request: ${request.inventory?.totalFoodCount ?? "unknown"} total (${requestFoodItems})`,
 			`Nearby entities from request: ${requestEntities}`,
+			`Nearby entity distances from request: ${requestEntityDetails}`,
 			`Nearby blocks from request: ${requestBlocks}`,
 			"",
 			"Yuri's Live State:",
 			`Danger: ${liveDanger}`,
 			`Player health: ${liveHealth}`,
+			`Player hunger: ${liveHunger}`,
+			`Selected item: ${liveSelectedItem}`,
+			`Food in inventory: ${liveTotalFoodCount} total (${liveFoodItems})`,
 			`Nearby entities from stored state: ${liveEntities}`,
+			`Nearby entity distances from stored state: ${liveEntityDetails}`,
 			`Nearby blocks from stored state: ${liveBlocks}`,
 			`State updated at: ${liveUpdatedAt}`,
+			"",
+			memorySection,
 			"",
 			`Player said: ${request.message}`,
 		].join("\n");
@@ -84,6 +117,7 @@ export class PromptBuilder {
 			relevantMemories,
 			"",
 			"If relevant memories are provided, mention the memory subtly without sounding robotic.",
+            "If Yuri is proposing an action, ask for permission and do not claim the action already happened.",
             "Write Yuri's spoken reaction as one short natural sentence.",
 		].join("\n");
 	}

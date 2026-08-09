@@ -22,7 +22,12 @@ database.exec(`
 		z INTEGER NOT NULL,
 		importance REAL NOT NULL,
 		evidence_json TEXT NOT NULL,
-		created_at TEXT NOT NULL
+		created_at TEXT NOT NULL,
+		confidence REAL NOT NULL DEFAULT 0.5,
+		reinforcement_count INTEGER NOT NULL DEFAULT 1,
+		recall_count INTEGER NOT NULL DEFAULT 0,
+		last_updated_at TEXT NOT NULL DEFAULT '',
+		last_recalled_at TEXT
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_memories_player_name
@@ -31,3 +36,22 @@ database.exec(`
 	CREATE INDEX IF NOT EXISTS idx_memories_type
 		ON memories (type);
 `);
+
+//migration code
+const existingColumns = database
+	.prepare("PRAGMA table_info(memories)")
+	.all() as Array<{ name: string }>;
+
+const columnNames = new Set(existingColumns.map((column) => column.name));
+
+function addColumnIfMissing(name: string, sql: string): void {
+	if (!columnNames.has(name)) {
+		database.exec(`ALTER TABLE memories ADD COLUMN ${sql}`);
+	}
+}
+
+addColumnIfMissing("confidence", "confidence REAL NOT NULL DEFAULT 0.5");
+addColumnIfMissing("reinforcement_count", "reinforcement_count INTEGER NOT NULL DEFAULT 1");
+addColumnIfMissing("recall_count", "recall_count INTEGER NOT NULL DEFAULT 0");
+addColumnIfMissing("last_updated_at", "last_updated_at TEXT NOT NULL DEFAULT ''");
+addColumnIfMissing("last_recalled_at", "last_recalled_at TEXT");

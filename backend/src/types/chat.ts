@@ -12,14 +12,18 @@ export type NearbyBlock = {
 };
 
 export type NearbyContext = {
-    entities: string[];
-    blocks: NearbyBlock[];
+	entities: string[];
+	entityDetails?: NearbyEntity[];
+	blocks: NearbyBlock[];
 };
 
 export type ChatRequest = {
-    message: string;
-    player: PlayerContext;
-    nearby: NearbyContext;
+	message: string;
+	player: PlayerContext;
+	nearby: NearbyContext;
+	hunger?: number;
+	selectedItem?: string;
+	inventory?: InventorySummary;
 };
 
 export type ChatAction = {
@@ -31,4 +35,19 @@ export type ChatResponse = {
     reply: string;
     emotion: "friendly" | "lonely" | "possessive" | "angry";
     actions: ChatAction[];
+};
+
+export type NearbyEntity = {
+	name: string;
+	distance: number;
+};
+
+export type InventoryItem = {
+	name: string;
+	count: number;
+};
+
+export type InventorySummary = {
+	foodItems: InventoryItem[];
+	totalFoodCount: number;
 };

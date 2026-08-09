@@ -57,6 +57,9 @@ public class YuriEventPublisher {
         float health = player.getHealth();
         long gameTime = player.getWorld().getTimeOfDay();
         MinecraftServer server = player.getServer();
+        int hunger = player.getHungerManager().getFoodLevel();
+        String selectedItem = worldSensor.selectedItemName(player);
+        YuriWorldSensor.InventorySummary inventory = worldSensor.scanInventory(player);
 
         if (server == null) {
             return;
@@ -70,6 +73,9 @@ public class YuriEventPublisher {
                 pos.getZ(),
                 nearby,
                 health,
+                hunger,
+                selectedItem,
+                inventory,
                 gameTime
         ).thenAccept(response -> {
             if (!response.success()) {

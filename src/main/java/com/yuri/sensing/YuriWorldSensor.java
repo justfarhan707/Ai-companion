@@ -7,6 +7,8 @@ import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 import net.minecraft.world.World;
+import net.minecraft.component.DataComponentTypes;
+import net.minecraft.item.ItemStack;
 
 import java.util.Comparator;
 import java.util.HashMap;
@@ -14,10 +16,23 @@ import java.util.List;
 import java.util.Map;
 
 public class YuriWorldSensor {
-	public record NearbyContext(List<String> entities, List<NearbyBlock> blocks) {
+	public record NearbyContext(
+			List<String> entities,
+			List<NearbyEntity> entityDetails,
+			List<NearbyBlock> blocks
+	) {
+	}
+
+	public record NearbyEntity(String name, double distance) {
 	}
 
 	public record NearbyBlock(String name, int count) {
+	}
+
+	public record InventorySummary(List<InventoryItem> foodItems, int totalFoodCount) {
+	}
+
+	public record InventoryItem(String name, int count) {
 	}
 
 	public String describePosition(ServerPlayerEntity player) {
@@ -40,9 +55,17 @@ public class YuriWorldSensor {
 						player.getX() + 8, player.getY() + 4, player.getZ() + 8)
 		);
 
-		List<String> entityNames = nearbyEntities.stream()
+		List<NearbyEntity> entityDetails = nearbyEntities.stream()
+				.sorted(Comparator.comparingDouble(entity -> entity.squaredDistanceTo(player)))
 				.limit(8)
-				.map(entity -> entity.getName().getString())
+				.map(entity -> new NearbyEntity(
+						entity.getName().getString(),
+						Math.sqrt(entity.squaredDistanceTo(player))
+				))
+				.toList();
+
+		List<String> entityNames = entityDetails.stream()
+				.map(NearbyEntity::name)
 				.toList();
 
 		Map<String, Integer> blockCounts = new HashMap<>();
@@ -62,7 +85,7 @@ public class YuriWorldSensor {
 				.map(entry -> new NearbyBlock(entry.getKey(), entry.getValue()))
 				.toList();
 
-		return new NearbyContext(entityNames, blocks);
+		return new NearbyContext(entityNames, entityDetails, blocks);
 	}
 
 	public String describeNearby(ServerPlayerEntity player) {
@@ -83,11 +106,50 @@ public class YuriWorldSensor {
 		message.append("Common blocks: ");
 		for (NearbyBlock block : nearby.blocks()) {
 			message.append(block.name())
-						.append(" x")
+					.append(" x")
 					.append(block.count())
 					.append("; ");
 		}
 
 		return message.toString();
 	}
+
+
+	//inventory function
+	public InventorySummary scanInventory(ServerPlayerEntity player) {
+		Map<String, Integer> foodCounts = new HashMap<>();
+
+		for (int slot = 0; slot < player.getInventory().size(); slot++) {
+			ItemStack stack = player.getInventory().getStack(slot);
+
+			if (stack.isEmpty() || stack.get(DataComponentTypes.FOOD) == null) {
+				continue;
+			}
+
+			String itemName = stack.getName().getString();
+			foodCounts.put(itemName, foodCounts.getOrDefault(itemName, 0) + stack.getCount());
+		}
+
+		List<InventoryItem> foodItems = foodCounts.entrySet().stream()
+				.sorted(Map.Entry.comparingByKey())
+				.map(entry -> new InventoryItem(entry.getKey(), entry.getValue()))
+				.toList();
+
+		int totalFoodCount = foodItems.stream()
+				.mapToInt(InventoryItem::count)
+				.sum();
+
+		return new InventorySummary(foodItems, totalFoodCount);
+	}
+
+	public String selectedItemName(ServerPlayerEntity player) {
+		ItemStack stack = player.getMainHandStack();
+
+		if (stack.isEmpty()) {
+			return "empty";
+		}
+
+		return stack.getName().getString();
+	}
+
 }
