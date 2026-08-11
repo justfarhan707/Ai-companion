@@ -19,6 +19,8 @@ import java.util.UUID;
 public class YuriCompanionController {
 	private UUID yuriUuid;
 	private UUID yuriOwnerUuid;
+	private UUID huntTargetUuid;
+	private String huntTargetName;
 	private boolean yuriActive;
 
 	public void registerEvents() {
@@ -107,6 +109,30 @@ public class YuriCompanionController {
 			return;
 		}
 
+		if (huntTargetUuid != null) {
+			Entity target = world.getEntity(huntTargetUuid);
+
+			if (target == null || !target.isAlive()) {
+				huntTargetUuid = null;
+				huntTargetName = null;
+				return;
+			}
+
+			double targetDistanceSq = yuri.squaredDistanceTo(target);
+
+			if (targetDistanceSq > 2.25) {
+				yuri.getNavigation().startMovingTo(target, 1.35);
+				return;
+			}
+
+			server.getPlayerManager()
+					.broadcast(Text.literal("<Yuri> I reached the " + huntTargetName + "."), false);
+
+			huntTargetUuid = null;
+			huntTargetName = null;
+			return;
+		}
+
 		double distanceSq = yuri.squaredDistanceTo(owner);
 
 		yuri.setSitting(false);
@@ -123,6 +149,8 @@ public class YuriCompanionController {
 
 	private void putYuriToSleep(MinecraftServer server) {
 		yuriActive = false;
+		huntTargetUuid = null;
+		huntTargetName = null;
 
 		if (yuriUuid == null) {
 			return;
@@ -180,4 +208,62 @@ public class YuriCompanionController {
 		yuriUuid = yuri.getUuid();
 		yuriOwnerUuid = owner.getUuid();
 	}
+
+	public String huntNearest(MinecraftServer server, String targetName) {
+		if (yuriUuid == null || yuriOwnerUuid == null) {
+			return "I need to be awake before I can hunt.";
+		}
+
+		ServerPlayerEntity owner = server.getPlayerManager().getPlayer(yuriOwnerUuid);
+
+		if (owner == null) {
+			return "I can't find you right now.";
+		}
+
+		CatEntity yuri = findTrackedOrExistingYuri(owner);
+
+		if (yuri == null) {
+			return "I can't find my body right now.";
+		}
+
+		Entity target = findNearestNamedEntity(owner, targetName);
+
+		if (target == null) {
+			return "I can't see a " + targetName + " nearby.";
+		}
+
+		yuriActive = true;
+		yuri.setSitting(false);
+		huntTargetUuid = target.getUuid();
+		huntTargetName = targetName;
+
+		return "I'm going after the " + targetName + ".";
+	}
+
+	private Entity findNearestNamedEntity(ServerPlayerEntity owner, String targetName) {
+		Box searchArea = new Box(
+				owner.getX() - 16,
+				owner.getY() - 8,
+				owner.getZ() - 16,
+				owner.getX() + 16,
+				owner.getY() + 8,
+				owner.getZ() + 16
+		);
+
+		List<Entity> matches = owner.getWorld().getOtherEntities(
+				owner,
+				searchArea,
+				entity -> entity.isAlive()
+						&& entity.getName().getString().equalsIgnoreCase(targetName)
+		);
+
+		if (matches.isEmpty()) {
+			return null;
+		}
+
+		return matches.stream()
+				.min((a, b) -> Double.compare(a.squaredDistanceTo(owner), b.squaredDistanceTo(owner)))
+				.orElse(null);
+	}
+
 }

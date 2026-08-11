@@ -3,4 +3,9 @@ export type SayAction = {
 	text: string;
 };
 
-export type YuriAction = SayAction;
+export type HuntEntityAction = {
+	type: "hunt_entity";
+	targetName: string;
+};
+
+export type YuriAction = SayAction | HuntEntityAction;

@@ -15,7 +15,9 @@ import { SignificantMemoryDetector } from "./memory/SignificantMemoryDetector.js
 import type { YuriAction } from "./types/actions.js";
 import type { MemoryRecord } from "./memory/MemoryRecord.js";
 import { MessageMemoryTagger } from "./memory/MessageMemoryTagger.js";
-
+import { ProposalStore } from "./actions/ProposalStore.js";
+import { ApprovalInterpreter } from "./actions/ApprovalInterpreter.js";
+import { PlayerIntentInterpreter } from "./actions/PlayerIntentInterpreter.js";
 
 const app = express();
 const port = 3001;
@@ -30,6 +32,9 @@ const reactionSpeechGenerator = new ReactionSpeechGenerator(llmProvider);
 const longTermMemoryStore = new LongTermMemoryStore();
 const significantMemoryDetector = new SignificantMemoryDetector();
 const messageMemoryTagger = new MessageMemoryTagger();
+const proposalStore = new ProposalStore();
+const approvalInterpreter = new ApprovalInterpreter();
+const playerIntentInterpreter = new PlayerIntentInterpreter();
 
 app.use(cors());
 app.use(express.json());
@@ -92,6 +97,61 @@ app.post("/chat", async (req, res) => {
                 }
                 : undefined,
         };
+
+        const pendingProposal = proposalStore.get(chatRequest.player.name);
+        const approvalDecision = pendingProposal
+          ? approvalInterpreter.interpret(chatRequest.message)
+          : "unknown";
+
+        if (pendingProposal && approvalDecision === "approved") {
+        	const proposal = proposalStore.consume(chatRequest.player.name);
+
+        	if (proposal?.type === "hunt_entity") {
+        		res.json({
+        			reply: `Okay, I'll hunt the ${proposal.targetName}.`,
+        			emotion: "friendly",
+        			actions: [
+        				{
+        					type: "hunt_entity",
+        					targetName: proposal.targetName,
+        				},
+        			],
+        			approvedProposal: proposal,
+        			recalledMemories: [],
+        		});
+        		return;
+        	}
+        }
+
+        if (pendingProposal && approvalDecision === "rejected") {
+        	proposalStore.clear(chatRequest.player.name);
+
+        	res.json({
+        		reply: "Okay, I'll leave it alone.",
+        		emotion: "friendly",
+        		actions: [],
+        		rejectedProposal: pendingProposal,
+        		recalledMemories: [],
+        	});
+        	return;
+        }
+
+        const commandIntent = playerIntentInterpreter.interpret(chatRequest.message);
+
+        if (commandIntent.type === "hunt_entity") {
+        	res.json({
+        		reply: `Okay, I'll go after the ${commandIntent.targetName}.`,
+        		emotion: "friendly",
+        		actions: [
+        			{
+        				type: "hunt_entity",
+        				targetName: commandIntent.targetName,
+        			},
+        		],
+        		recalledMemories: [],
+        	});
+        	return;
+        }
 
         const memoryTags = messageMemoryTagger.inferTags(chatRequest.message);
         const relevantMemories = longTermMemoryStore.findRelevant(
@@ -163,8 +223,27 @@ app.post("/events", async (req, res) => {
                 intent,
                 relevantMemories,
             ));
+            if (intent.reason === "LOW_FOOD_WITH_HUNTABLE_ANIMAL") {
+            	const targetAnimal = intent.context.targetAnimal;
+
+            	if (typeof targetAnimal === "string") {
+            		const proposal = proposalStore.create({
+            			playerName: state.player.name,
+            			type: "hunt_entity",
+            			targetName: targetAnimal,
+            			reason: intent.reason,
+            		});
+
+            		console.log("Proposal created:", proposal);
+            	}
+            }
     	}
     }
+
+    //for debugginf creation of proposal
+    const pendingProposal = state && "player" in state
+    	? proposalStore.get(state.player.name)
+    	: undefined;
 
     res.json({
     	accepted: true,
@@ -172,6 +251,7 @@ app.post("/events", async (req, res) => {
     	actions,
         memories,
         recalledMemories,
+        pendingProposal,
     });
 });
 

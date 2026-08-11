@@ -22,9 +22,9 @@ public class YuriMod implements ModInitializer {
 		YuriCompanionController companionController = new YuriCompanionController(); //controls movment etc and begaviour of yuri
 		YuriWorldSensor worldSensor = new YuriWorldSensor();// yyri knows whats near him nearBycontext()
 		YuriBackendClient backendClient = new YuriBackendClient(); // sends updates to and states to backend evry 5 second
-		YuriActionExecutor actionExecutor = new YuriActionExecutor(); // executes the actions if there is a resoponse
+		YuriActionExecutor actionExecutor = new YuriActionExecutor(companionController); // executes backend actions
 		YuriEventPublisher eventPublisher = new YuriEventPublisher(backendClient, worldSensor, actionExecutor);//sends events and states alos if getten events will tell action executor
-		YuriCommands commands = new YuriCommands(companionController, worldSensor, backendClient);//spwan commands etc yuri uses
+		YuriCommands commands = new YuriCommands(companionController, worldSensor, backendClient, actionExecutor);//spwan commands etc yuri uses
 
 		commands.register();
 		companionController.registerEvents();

@@ -114,23 +114,23 @@ public class YuriBackendClient {
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                return new BackendChatResponse(false, "Yuri backend returned HTTP " + response.statusCode() + ".");
+                return new BackendChatResponse(false, "Yuri backend returned HTTP " + response.statusCode() + ".", "");
             }
 
             String reply = extractReply(response.body());
 
             if (reply.isBlank()) {
-                return new BackendChatResponse(false, "Yuri backend returned an empty reply.");
+                return new BackendChatResponse(false, "Yuri backend returned an empty reply.", response.body());
             }
 
-            return new BackendChatResponse(true, reply);
+            return new BackendChatResponse(true, reply, response.body());
         } catch (HttpTimeoutException exception) {
-            return new BackendChatResponse(false, "Yuri took too long to think. Try again in a moment.");
+            return new BackendChatResponse(false, "Yuri took too long to think. Try again in a moment.", "");
         } catch (IOException exception) {
-            return new BackendChatResponse(false, "Yuri backend is offline: " + exception.getMessage());
+            return new BackendChatResponse(false, "Yuri backend is offline: " + exception.getMessage(), "");
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            return new BackendChatResponse(false, "Yuri backend chat was interrupted.");
+            return new BackendChatResponse(false, "Yuri backend chat was interrupted.", "");
         }
     }
 
@@ -165,7 +165,7 @@ public class YuriBackendClient {
         return response.get("reply").getAsString();
     }
 
-    public record BackendChatResponse(boolean success, String message) {
+    public record BackendChatResponse(boolean success, String message, String body) {
     }
 
     public record BackendHealth(boolean online, String message) {

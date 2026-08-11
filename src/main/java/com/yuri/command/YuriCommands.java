@@ -4,6 +4,7 @@ package com.yuri.command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.yuri.backend.YuriBackendClient;
+import com.yuri.actions.YuriActionExecutor;
 import com.yuri.companion.YuriCompanionController;
 import com.yuri.sensing.YuriWorldSensor;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
@@ -18,15 +19,18 @@ public class YuriCommands {
 	private final YuriCompanionController companionController;
 	private final YuriWorldSensor worldSensor;
 	private final YuriBackendClient backendClient;
+	private final YuriActionExecutor actionExecutor;
 
 	public YuriCommands(
 			YuriCompanionController companionController,
 			YuriWorldSensor worldSensor,
-			YuriBackendClient backendClient
+			YuriBackendClient backendClient,
+			YuriActionExecutor actionExecutor
 	) {
 		this.companionController = companionController;
 		this.worldSensor = worldSensor;
 		this.backendClient = backendClient;
+		this.actionExecutor = actionExecutor;
 	}
 
 	public void register() {
@@ -131,6 +135,8 @@ public class YuriCommands {
 
 												server.getPlayerManager()
 														.broadcast(Text.literal("<Yuri> " + response.message()), false);
+
+												actionExecutor.executeActions(server, response.body());
 											}));
 
 									return 1;

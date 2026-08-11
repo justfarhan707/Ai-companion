@@ -6,8 +6,16 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.text.Text;
+import com.yuri.companion.YuriCompanionController;
 
 public class YuriActionExecutor {
+
+    private final YuriCompanionController companionController;
+
+    public YuriActionExecutor(YuriCompanionController companionController) {
+        this.companionController = companionController;
+    }
+
     public void executeActions(MinecraftServer server, String responseBody) {
         JsonObject response = JsonParser.parseString(responseBody).getAsJsonObject();
 
@@ -28,6 +36,10 @@ public class YuriActionExecutor {
             if ("say".equals(type)) {
                 executeSay(server, action);
             }
+
+            if ("hunt_entity".equals(type)) {
+                executeHuntEntity(server, action);
+            }
         }
     }
 
@@ -44,5 +56,22 @@ public class YuriActionExecutor {
 
         server.getPlayerManager()
                 .broadcast(Text.literal("<Yuri> " + text), false);
+    }
+
+    private void executeHuntEntity(MinecraftServer server, JsonObject action) {
+        if (!action.has("targetName")) {
+            return;
+        }
+
+        String targetName = action.get("targetName").getAsString().trim();
+
+        if (targetName.isBlank()) {
+            return;
+        }
+
+        String message = companionController.huntNearest(server, targetName);
+
+        server.getPlayerManager()
+                .broadcast(Text.literal("<Yuri> " + message), false);
     }
 }
