@@ -21,6 +21,7 @@ public class YuriCompanionController {
 	private UUID yuriOwnerUuid;
 	private UUID huntTargetUuid;
 	private String huntTargetName;
+	private int huntAttackCooldownTicks;
 	private boolean yuriActive;
 
 	public void registerEvents() {
@@ -115,6 +116,7 @@ public class YuriCompanionController {
 			if (target == null || !target.isAlive()) {
 				huntTargetUuid = null;
 				huntTargetName = null;
+				huntAttackCooldownTicks = 0;
 				return;
 			}
 
@@ -125,11 +127,22 @@ public class YuriCompanionController {
 				return;
 			}
 
-			server.getPlayerManager()
-					.broadcast(Text.literal("<Yuri> I reached the " + huntTargetName + "."), false);
+			if (huntAttackCooldownTicks > 0) {
+				huntAttackCooldownTicks--;
+				return;
+			}
 
-			huntTargetUuid = null;
-			huntTargetName = null;
+			target.damage(yuri.getDamageSources().mobAttack(yuri), 3.0F);
+			huntAttackCooldownTicks = 20;
+
+			if (!target.isAlive()) {
+				server.getPlayerManager()
+						.broadcast(Text.literal("<Yuri> I got the " + huntTargetName + "."), false);
+
+				huntTargetUuid = null;
+				huntTargetName = null;
+				huntAttackCooldownTicks = 0;
+			}
 			return;
 		}
 
@@ -151,6 +164,7 @@ public class YuriCompanionController {
 		yuriActive = false;
 		huntTargetUuid = null;
 		huntTargetName = null;
+		huntAttackCooldownTicks = 0;
 
 		if (yuriUuid == null) {
 			return;
@@ -236,6 +250,7 @@ public class YuriCompanionController {
 		yuri.setSitting(false);
 		huntTargetUuid = target.getUuid();
 		huntTargetName = targetName;
+		huntAttackCooldownTicks = 0;
 
 		return "I'm going after the " + targetName + ".";
 	}

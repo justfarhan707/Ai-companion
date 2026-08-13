@@ -19,6 +19,7 @@ import { ProposalStore } from "./actions/ProposalStore.js";
 import { ApprovalInterpreter } from "./actions/ApprovalInterpreter.js";
 import { PlanningContextBuilder } from "./planning/PlanningContextBuilder.js";
 import { ActionValidator } from "./actions/ActionValidator.js";
+import { ResponseReconciler } from "./planning/ResponseReconciler.js";
 
 const app = express();
 const port = 3001;
@@ -37,6 +38,7 @@ const proposalStore = new ProposalStore();
 const approvalInterpreter = new ApprovalInterpreter();
 const planningContextBuilder = new PlanningContextBuilder();
 const actionValidator = new ActionValidator();
+const responseReconciler = new ResponseReconciler();
 
 app.use(cors());
 app.use(express.json());
@@ -149,25 +151,16 @@ app.post("/chat", async (req, res) => {
             relevantMemories,
         });
 
-       const planned = await llmProvider.plan(planningContext);
-       const validation = actionValidator.validate(planned.actions, planningContext);
+    const planned = await llmProvider.plan(planningContext);
+    const validation = actionValidator.validate(planned.actions, planningContext);
+    const finalResponse = responseReconciler.reconcile(planned, validation);
 
-       const reply = validation.rejectedActions.length > 0 && validation.actions.length === 0
-       	? "I can't do that safely from here."
-       	: planned.reply;
+    res.json({
+    	...finalResponse,
+    	rejectedActions: validation.rejectedActions,
+    	recalledMemories: relevantMemories,
+    });
 
-       res.json({
-       	...planned,
-       	reply,
-       	actions: validation.actions,
-       	rejectedActions: validation.rejectedActions,
-       	recalledMemories: relevantMemories,
-       });
-
-        res.json({
-            ...planned,
-            recalledMemories: relevantMemories,
-        });
     } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown backend error";
 
