@@ -17,7 +17,8 @@ import type { MemoryRecord } from "./memory/MemoryRecord.js";
 import { MessageMemoryTagger } from "./memory/MessageMemoryTagger.js";
 import { ProposalStore } from "./actions/ProposalStore.js";
 import { ApprovalInterpreter } from "./actions/ApprovalInterpreter.js";
-import { PlayerIntentInterpreter } from "./actions/PlayerIntentInterpreter.js";
+import { PlanningContextBuilder } from "./planning/PlanningContextBuilder.js";
+import { ActionValidator } from "./actions/ActionValidator.js";
 
 const app = express();
 const port = 3001;
@@ -34,7 +35,8 @@ const significantMemoryDetector = new SignificantMemoryDetector();
 const messageMemoryTagger = new MessageMemoryTagger();
 const proposalStore = new ProposalStore();
 const approvalInterpreter = new ApprovalInterpreter();
-const playerIntentInterpreter = new PlayerIntentInterpreter();
+const planningContextBuilder = new PlanningContextBuilder();
+const actionValidator = new ActionValidator();
 
 app.use(cors());
 app.use(express.json());
@@ -47,7 +49,7 @@ app.get("/health", (_req, res) => {
 });
 
 app.post("/chat", async (req, res) => {
-    const request = req.body as Partial<ChatRequest>;
+    const request = (req.body ?? {}) as Partial<ChatRequest>;
 
     if (!request.message || !request.player || !request.nearby) {
         res.status(400).json({
@@ -97,10 +99,10 @@ app.post("/chat", async (req, res) => {
                 }
                 : undefined,
         };
-
+        //yes or no resolver checks for approvals if there are
         const pendingProposal = proposalStore.get(chatRequest.player.name);
         const approvalDecision = pendingProposal
-          ? approvalInterpreter.interpret(chatRequest.message)
+          ? approvalInterpreter.interpret(chatRequest.message) //check if there is yes or no in chat
           : "unknown";
 
         if (pendingProposal && approvalDecision === "approved") {
@@ -136,37 +138,34 @@ app.post("/chat", async (req, res) => {
         	return;
         }
 
-        const commandIntent = playerIntentInterpreter.interpret(chatRequest.message);
-
-        if (commandIntent.type === "hunt_entity") {
-        	res.json({
-        		reply: `Okay, I'll go after the ${commandIntent.targetName}.`,
-        		emotion: "friendly",
-        		actions: [
-        			{
-        				type: "hunt_entity",
-        				targetName: commandIntent.targetName,
-        			},
-        		],
-        		recalledMemories: [],
-        	});
-        	return;
-        }
-
         const memoryTags = messageMemoryTagger.inferTags(chatRequest.message);
         const relevantMemories = longTermMemoryStore.findRelevant(
             chatRequest.player.name,
             memoryTags,
         );
-
-        const response = await llmProvider.chat({
+        const planningContext = planningContextBuilder.build({
             request: chatRequest,
             liveState: liveStateStore.get(chatRequest.player.name),
             relevantMemories,
         });
 
+       const planned = await llmProvider.plan(planningContext);
+       const validation = actionValidator.validate(planned.actions, planningContext);
+
+       const reply = validation.rejectedActions.length > 0 && validation.actions.length === 0
+       	? "I can't do that safely from here."
+       	: planned.reply;
+
+       res.json({
+       	...planned,
+       	reply,
+       	actions: validation.actions,
+       	rejectedActions: validation.rejectedActions,
+       	recalledMemories: relevantMemories,
+       });
+
         res.json({
-            ...response,
+            ...planned,
             recalledMemories: relevantMemories,
         });
     } catch (error) {
@@ -182,16 +181,21 @@ app.post("/chat", async (req, res) => {
 });
 
 app.post("/events", async (req, res) => {
-	const event = req.body as GameEvent;
+	const event = (req.body ?? {}) as Partial<GameEvent>;
 
 	if (!event.type) {
 		res.status(400).json({ error: "event type is required" });
 		return;
 	}
 
+	if (!event.player || !event.nearby) {
+		res.status(400).json({ error: "event player and nearby are required" });
+		return;
+	}
+
 	console.log("Event received:", event.type, event.player.name);
 
-	const state = eventRouter.handle(event);
+	const state = eventRouter.handle(event as GameEvent);
     const actions: YuriAction[] = [];
     const memories: MemoryRecord[] = [];
     const recalledMemories: MemoryRecord[] = [];

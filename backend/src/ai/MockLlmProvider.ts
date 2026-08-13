@@ -1,5 +1,6 @@
 import type { LlmProvider } from "./LlmProvider.js";
 import type { ChatResponse } from "../types/chat.js";
+import type { PlannedResponse } from "../planning/PlannedResponse.js";
 import type { LlmChatInput } from "./LlmChatInput.js";
 import type { LlmReactionInput } from "./LlmReactionInput.js";
 
@@ -31,6 +32,14 @@ export class MockLlmProvider implements LlmProvider {
     async react(input: LlmReactionInput): Promise<ChatResponse> {
         return {
             reply: `[mock reaction] ${input.intent.intent}`,
+            emotion: "friendly",
+            actions: [],
+        };
+    }
+
+    async plan(): Promise<PlannedResponse> {
+        return {
+            reply: "I can help with that.",
             emotion: "friendly",
             actions: [],
         };

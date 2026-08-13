@@ -1,5 +1,6 @@
 import type { LlmChatInput } from "./LlmChatInput.js";
 import type { LlmReactionInput } from "./LlmReactionInput.js";
+import type { PlanningContext } from "../planning/PlanningContext.js";
 
 export class PromptBuilder {
 	buildSystemInstruction(): string {
@@ -119,6 +120,55 @@ export class PromptBuilder {
 			"If relevant memories are provided, mention the memory subtly without sounding robotic.",
             "If Yuri is proposing an action, ask for permission and do not claim the action already happened.",
             "Write Yuri's spoken reaction as one short natural sentence.",
+		].join("\n");
+	}
+
+	buildPlanningPrompt(input: PlanningContext): string {
+		const request = input.request;
+		const liveState = input.liveState;
+
+		const nearbyEntities = request.nearby.entityDetails
+			?.map((entity) => `${entity.name} at ${entity.distance.toFixed(1)} blocks`)
+			.join(", ") || request.nearby.entities.join(", ") || "none";
+		const nearbyBlocks = request.nearby.blocks
+			.map((block) => `${block.name} x${block.count}`)
+			.join(", ") || "none";
+		const memories = input.relevantMemories.length > 0
+			? input.relevantMemories
+				.map((memory) => `- ${memory.summary} [tags: ${memory.tags.join(", ")}]`)
+				.join("\n")
+			: "none";
+
+		return [
+			"You are Yuri's planning system.",
+			"Return only valid JSON. No markdown. No explanation.",
+			"",
+			"Allowed JSON shape:",
+			`{"reply":"string","emotion":"friendly","actions":[]}`,
+			"",
+			"Rules:",
+			"- Always include a short natural reply.",
+			"- Only use actions from availableActions.",
+			"- Do not invent target names.",
+			"- If an action requires approval, ask for permission unless the player clearly commanded it.",
+			"- For hunt_entity, targetName must be a nearby entity.",
+			"",
+			`Player message: ${request.message}`,
+			`Player: ${request.player.name}`,
+			`World: ${request.player.world}`,
+			`Position: ${request.player.x}, ${request.player.y}, ${request.player.z}`,
+			`Health: ${liveState?.health ?? "unknown"}`,
+			`Hunger: ${request.hunger ?? liveState?.hunger ?? "unknown"}`,
+			`Food count: ${request.inventory?.totalFoodCount ?? liveState?.inventory?.totalFoodCount ?? "unknown"}`,
+			`Selected item: ${request.selectedItem ?? liveState?.selectedItem ?? "unknown"}`,
+			`Nearby entities: ${nearbyEntities}`,
+			`Nearby blocks: ${nearbyBlocks}`,
+			"",
+			"Relevant memories:",
+			memories,
+			"",
+			"Available actions:",
+			JSON.stringify(input.availableActions),
 		].join("\n");
 	}
 }
