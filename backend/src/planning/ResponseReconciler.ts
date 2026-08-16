@@ -1,9 +1,29 @@
 import type { ActionValidationResult, RejectedAction } from "../actions/ActionValidation.js";
 import type { PlannedResponse } from "./PlannedResponse.js";
+import type { PlanningContext } from "./PlanningContext.js";
+
+const ACTION_WORDS = [
+	"hunt",
+	"kill",
+	"attack",
+	"get",
+	"bring",
+	"give",
+	"take",
+	"come",
+	"go",
+	"follow",
+	"teleport",
+	"help",
+];
 
 export class ResponseReconciler {
-	reconcile(planned: PlannedResponse, validation: ActionValidationResult): PlannedResponse {
-		const rejectedReply = validation.actions.length === 0
+	reconcile(
+		planned: PlannedResponse,
+		validation: ActionValidationResult,
+		context: PlanningContext
+	): PlannedResponse {
+		const rejectedReply = validation.actions.length === 0 && this.isActionRequest(context.request.message)
 			? this.replyForRejectedActions(validation.rejectedActions)
 			: undefined;
 
@@ -45,4 +65,9 @@ export class ResponseReconciler {
     				return "I can't do that safely right now.";
     		}
     	}
+
+	private isActionRequest(message: string): boolean {
+		const normalized = message.toLowerCase();
+		return ACTION_WORDS.some((word) => normalized.includes(word));
+	}
     }

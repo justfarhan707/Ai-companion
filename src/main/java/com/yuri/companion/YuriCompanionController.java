@@ -13,6 +13,8 @@ import net.minecraft.text.Text;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 
+import com.yuri.backend.YuriBackendClient;
+
 import java.util.List;
 import java.util.UUID;
 
@@ -23,6 +25,11 @@ public class YuriCompanionController {
 	private String huntTargetName;
 	private int huntAttackCooldownTicks;
 	private boolean yuriActive;
+	private YuriBackendClient backendClient;
+
+	public void setBackendClient(YuriBackendClient backendClient) {
+		this.backendClient = backendClient;
+	}
 
 	public void registerEvents() {
 		ServerTickEvents.END_SERVER_TICK.register(this::tickYuriFollower);
@@ -138,6 +145,8 @@ public class YuriCompanionController {
 			if (!target.isAlive()) {
 				server.getPlayerManager()
 						.broadcast(Text.literal("<Yuri> I got the " + huntTargetName + "."), false);
+
+				sendHuntCompleted(owner, huntTargetName, "success");
 
 				huntTargetUuid = null;
 				huntTargetName = null;
@@ -279,6 +288,28 @@ public class YuriCompanionController {
 		return matches.stream()
 				.min((a, b) -> Double.compare(a.squaredDistanceTo(owner), b.squaredDistanceTo(owner)))
 				.orElse(null);
+	}
+
+	//helper method for hunt
+	private void sendHuntCompleted(ServerPlayerEntity owner, String targetName, String result) {
+		if (backendClient == null || targetName == null) {
+			return;
+		}
+
+		BlockPos pos = owner.getBlockPos();
+		String playerName = owner.getName().getString();
+		String world = owner.getWorld().getRegistryKey().getValue().toString();
+
+		backendClient.sendYuriActionCompletedAsync(
+				playerName,
+				world,
+				pos.getX(),
+				pos.getY(),
+				pos.getZ(),
+				"hunt_entity",
+				targetName,
+				result
+		);
 	}
 
 }

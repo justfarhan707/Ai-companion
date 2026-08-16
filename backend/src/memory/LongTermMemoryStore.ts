@@ -16,6 +16,7 @@ type MemoryRow = {
 	reinforcement_count: number;
 	recall_count: number;
 	evidence_json: string;
+	embedding_json: string | null;
 	created_at: string;
 	last_updated_at: string;
 	last_recalled_at: string | null;
@@ -38,6 +39,7 @@ export class LongTermMemoryStore {
 			reinforcement_count,
 			recall_count,
 			evidence_json,
+			embedding_json,
 			created_at,
 			last_updated_at,
 			last_recalled_at
@@ -56,6 +58,7 @@ export class LongTermMemoryStore {
 			@reinforcementCount,
 			@recallCount,
 			@evidenceJson,
+			@embeddingJson,
 			@createdAt,
 			@lastUpdatedAt,
 			@lastRecalledAt
@@ -72,6 +75,7 @@ export class LongTermMemoryStore {
 			reinforcement_count = @reinforcementCount,
 			recall_count = @recallCount,
 			evidence_json = @evidenceJson,
+			embedding_json = @embeddingJson,
 			last_updated_at = @lastUpdatedAt,
 			last_recalled_at = @lastRecalledAt
 		WHERE id = @id
@@ -93,6 +97,7 @@ export class LongTermMemoryStore {
 			reinforcement_count,
 			recall_count,
 			evidence_json,
+			embedding_json,
 			created_at,
 			last_updated_at,
 			last_recalled_at
@@ -145,6 +150,14 @@ export class LongTermMemoryStore {
 		return relevant;
 	}
 
+	updateEmbedding(memoryId: string, embedding: number[]): void {
+		this.updateMemoryEmbedding.run({
+			id: memoryId,
+			embeddingJson: JSON.stringify(embedding),
+			lastUpdatedAt: new Date().toISOString(),
+		});
+	}
+
 	private insert(memory: MemoryRecord): void {
 		this.insertMemory.run(this.toSqlParams(memory));
 	}
@@ -153,7 +166,7 @@ export class LongTermMemoryStore {
 		this.updateMemory.run(this.toSqlParams(memory));
 	}
 
-//dont create a new memory strengthen the old memory
+	//dont create a new memory strengthen the old memory
 	private reinforce(existing: MemoryRecord, incoming: MemoryRecord): MemoryRecord {
 		return {
 			...existing,
@@ -170,12 +183,42 @@ export class LongTermMemoryStore {
 	}
 
 	private findSimilar(memory: MemoryRecord): MemoryRecord | undefined {
-		return this.getForPlayer(memory.playerName).find((candidate) =>
-			candidate.type === memory.type &&
-			candidate.location.world === memory.location.world &&
-			this.sharedTagCount(candidate.tags, memory.tags) >= 2 &&
-			this.distanceSq(candidate.location, memory.location) <= 40 * 40
-		);
+		const incomingSummaryKey = this.normalizedSummaryKey(memory.summary);
+
+		return this.getForPlayer(memory.playerName).find((candidate) => {
+			if (candidate.type !== memory.type) {
+				return false;
+			}
+
+			if (candidate.location.world !== memory.location.world) {
+				return false;
+			}
+
+			const candidateSummaryKey = this.normalizedSummaryKey(candidate.summary);
+
+			if (
+				incomingSummaryKey.length > 0 &&
+				candidateSummaryKey === incomingSummaryKey
+			) {
+				return true;
+			}
+
+			return (
+				this.sharedTagCount(candidate.tags, memory.tags) >= 2 &&
+				this.distanceSq(candidate.location, memory.location) <= 40 * 40
+			);
+		});
+	}
+
+	private normalizedSummaryKey(summary: string): string {
+		return summary
+			.toLowerCase()
+			.replace(/player's/g, "player")
+			.replace(/[^\w\s]/g, "")
+			.replace(/\bthe\b/g, "")
+			.replace(/\bplayers\b/g, "player")
+			.replace(/\s+/g, " ")
+			.trim();
 	}
 
 	private markRecalled(memory: MemoryRecord): void {
@@ -186,29 +229,29 @@ export class LongTermMemoryStore {
 		});
 	}
 
-//importance of memories more scored memories will be given to gemini
-private scoreMemory(memory: MemoryRecord, tags: string[]): number {
-	let matchingTagCount = 0;
+	//importance of memories more scored memories will be given to gemini
+	private scoreMemory(memory: MemoryRecord, tags: string[]): number {
+		let matchingTagCount = 0;
 
-	for (const tag of tags) {
-		if (memory.tags.includes(tag)) {
-			matchingTagCount += 1;
+		for (const tag of tags) {
+			if (memory.tags.includes(tag)) {
+				matchingTagCount += 1;
+			}
 		}
+
+		if (matchingTagCount === 0) {
+			return 0;
+		}
+
+		let score = matchingTagCount;
+
+		score += memory.importance;
+		score += memory.confidence;
+		score += Math.min(memory.reinforcementCount * 0.1, 0.5);//smimiliar tags gets a bit high boost for eg danger tag
+		score += Math.min(memory.recallCount * 0.03, 0.3);//repeated memories gets small bosst
+
+		return score;
 	}
-
-	if (matchingTagCount === 0) {
-		return 0;
-	}
-
-	let score = matchingTagCount;
-
-	score += memory.importance;
-	score += memory.confidence;
-	score += Math.min(memory.reinforcementCount * 0.1, 0.5);//smimiliar tags gets a bit high boost for eg danger tag
-	score += Math.min(memory.recallCount * 0.03, 0.3);//repeated memories gets small bosst
-
-	return score;
-}
 
 	private sharedTagCount(a: string[], b: string[]): number {
 		const bSet = new Set(b);
@@ -239,6 +282,7 @@ private scoreMemory(memory: MemoryRecord, tags: string[]): number {
 			recallCount: memory.recallCount,
 			evidenceJson: JSON.stringify(memory.evidence),
 			createdAt: memory.createdAt,
+			embeddingJson: memory.embedding ? JSON.stringify(memory.embedding) : null,
 			lastUpdatedAt: memory.lastUpdatedAt,
 			lastRecalledAt: memory.lastRecalledAt ?? null,
 		};
@@ -263,8 +307,19 @@ private scoreMemory(memory: MemoryRecord, tags: string[]): number {
 			recallCount: row.recall_count,
 			evidence: JSON.parse(row.evidence_json) as Record<string, unknown>,
 			createdAt: row.created_at,
+			embedding: row.embedding_json
+				? JSON.parse(row.embedding_json) as number[]
+				: undefined,
 			lastUpdatedAt: row.last_updated_at || row.created_at,
 			lastRecalledAt: row.last_recalled_at ?? undefined,
 		};
 	}
+
+	private readonly updateMemoryEmbedding = database.prepare(`
+	UPDATE memories
+	SET
+		embedding_json = @embeddingJson,
+		last_updated_at = @lastUpdatedAt
+	WHERE id = @id
+`);
 }

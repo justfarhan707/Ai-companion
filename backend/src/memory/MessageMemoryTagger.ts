@@ -22,6 +22,14 @@ const TAG_RULES: Array<{
 		tags: ["home"],
 		words: ["home", "house", "base", "castle"],
 	},
+    {
+    	tags: ["preference", "personal_fact"],
+    	words: ["favorite", "like", "love", "hate", "prefer", "call me", "remember"],
+    },
+    {
+    	tags: ["place", "home"],
+    	words: ["base", "home", "house", "castle"],
+    },
 ];
 
 export class MessageMemoryTagger {

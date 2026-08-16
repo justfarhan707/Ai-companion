@@ -262,6 +262,79 @@ public class YuriBackendClient {
         }
     }
 
+    //yuriActionComplete
+
+    public CompletableFuture<BackendEventResponse> sendYuriActionCompletedAsync(
+            String playerName,
+            String world,
+            int x,
+            int y,
+            int z,
+            String actionType,
+            String targetName,
+            String result
+    ) {
+        return CompletableFuture.supplyAsync(() -> sendYuriActionCompleted(
+                playerName,
+                world,
+                x,
+                y,
+                z,
+                actionType,
+                targetName,
+                result
+        ));
+    }
+
+    //privatemethod
+    private BackendEventResponse sendYuriActionCompleted(
+            String playerName,
+            String world,
+            int x,
+            int y,
+            int z,
+            String actionType,
+            String targetName,
+            String result
+    ) {
+        String json = "{"
+                + "\"type\":\"YuriActionCompleted\","
+                + "\"player\":{"
+                + "\"name\":\"" + escapeJson(playerName) + "\","
+                + "\"world\":\"" + escapeJson(world) + "\","
+                + "\"x\":" + x + ","
+                + "\"y\":" + y + ","
+                + "\"z\":" + z
+                + "},"
+                + "\"action\":{"
+                + "\"type\":\"" + escapeJson(actionType) + "\","
+                + "\"targetName\":\"" + escapeJson(targetName) + "\","
+                + "\"result\":\"" + escapeJson(result) + "\""
+                + "}"
+                + "}";
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create("http://localhost:3001/events"))
+                .timeout(Duration.ofSeconds(3))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(json))
+                .build();
+        try {
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                return new BackendEventResponse(false, "");
+            }
+
+            return new BackendEventResponse(true, response.body());
+        } catch (IOException exception) {
+            return new BackendEventResponse(false, "");
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            return new BackendEventResponse(false, "");
+        }
+    }
+
 
     private static String toJsonEntityDetailsArray(List<YuriWorldSensor.NearbyEntity> entities) {
         return entities.stream()

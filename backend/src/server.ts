@@ -20,6 +20,12 @@ import { ApprovalInterpreter } from "./actions/ApprovalInterpreter.js";
 import { PlanningContextBuilder } from "./planning/PlanningContextBuilder.js";
 import { ActionValidator } from "./actions/ActionValidator.js";
 import { ResponseReconciler } from "./planning/ResponseReconciler.js";
+import { ConversationStore } from "./conversation/ConversationStore.js";
+import { GeminiMemoryExtractor } from "./memory/extraction/GeminiMemoryExtractor.js";
+import { ChatMemoryExtractor } from "./memory/ChatMemoryExtractor.js";
+import { MemoryRecallService } from "./memory/MemoryRecallService.js";
+import { GeminiEmbeddingProvider } from "./memory/embedding/GeminiEmbeddingProvider.js";
+import { MemoryEmbeddingService } from "./memory/embedding/MemoryEmbeddingService.js";
 
 const app = express();
 const port = 3001;
@@ -34,11 +40,22 @@ const reactionSpeechGenerator = new ReactionSpeechGenerator(llmProvider);
 const longTermMemoryStore = new LongTermMemoryStore();
 const significantMemoryDetector = new SignificantMemoryDetector();
 const messageMemoryTagger = new MessageMemoryTagger();
+const memoryRecallService = new MemoryRecallService(
+    longTermMemoryStore,
+    messageMemoryTagger,
+);
 const proposalStore = new ProposalStore();
 const approvalInterpreter = new ApprovalInterpreter();
 const planningContextBuilder = new PlanningContextBuilder();
 const actionValidator = new ActionValidator();
 const responseReconciler = new ResponseReconciler();
+const conversationStore = new ConversationStore();
+const chatMemoryExtractor = new ChatMemoryExtractor(new GeminiMemoryExtractor()); //creating two objects at once
+const memoryEmbeddingService = new MemoryEmbeddingService(
+    longTermMemoryStore,
+    new GeminiEmbeddingProvider(),
+);
+
 
 app.use(cors());
 app.use(express.json());
@@ -84,7 +101,7 @@ app.post("/chat", async (req, res) => {
                     ? request.nearby.blocks.map((block) => ({
                         name: String(block.name),
                         count: Number(block.count),
-                    })) 
+                    }))
                     : [],
             },
             hunger: request.hunger === undefined ? undefined : Number(request.hunger),
@@ -101,65 +118,98 @@ app.post("/chat", async (req, res) => {
                 }
                 : undefined,
         };
+        conversationStore.add({
+            playerName: chatRequest.player.name,
+            role: "player",
+            content: chatRequest.message,
+        });
+
         //yes or no resolver checks for approvals if there are
         const pendingProposal = proposalStore.get(chatRequest.player.name);
         const approvalDecision = pendingProposal
-          ? approvalInterpreter.interpret(chatRequest.message) //check if there is yes or no in chat
-          : "unknown";
+            ? approvalInterpreter.interpret(chatRequest.message) //check if there is yes or no in chat
+            : "unknown";
 
         if (pendingProposal && approvalDecision === "approved") {
-        	const proposal = proposalStore.consume(chatRequest.player.name);
+            const proposal = proposalStore.consume(chatRequest.player.name);
 
-        	if (proposal?.type === "hunt_entity") {
-        		res.json({
-        			reply: `Okay, I'll hunt the ${proposal.targetName}.`,
-        			emotion: "friendly",
-        			actions: [
-        				{
-        					type: "hunt_entity",
-        					targetName: proposal.targetName,
-        				},
-        			],
-        			approvedProposal: proposal,
-        			recalledMemories: [],
-        		});
-        		return;
-        	}
+            if (proposal?.type === "hunt_entity") {
+                res.json({
+                    reply: `Okay, I'll hunt the ${proposal.targetName}.`,
+                    emotion: "friendly",
+                    actions: [
+                        {
+                            type: "hunt_entity",
+                            targetName: proposal.targetName,
+                        },
+                    ],
+                    approvedProposal: proposal,
+                    recalledMemories: [],
+                });
+                return;
+            }
         }
 
         if (pendingProposal && approvalDecision === "rejected") {
-        	proposalStore.clear(chatRequest.player.name);
+            proposalStore.clear(chatRequest.player.name);
 
-        	res.json({
-        		reply: "Okay, I'll leave it alone.",
-        		emotion: "friendly",
-        		actions: [],
-        		rejectedProposal: pendingProposal,
-        		recalledMemories: [],
-        	});
-        	return;
+            res.json({
+                reply: "Okay, I'll leave it alone.",
+                emotion: "friendly",
+                actions: [],
+                rejectedProposal: pendingProposal,
+                recalledMemories: [],
+            });
+            return;
         }
+        const recentMessages = conversationStore.getRecent(chatRequest.player.name, 10);
+        const memoryRecall = memoryRecallService.recall({
+            playerName: chatRequest.player.name,
+            message: chatRequest.message,
+            request: chatRequest,
+            liveState: liveStateStore.get(chatRequest.player.name),
+            recentMessages,
+            limit: 5,
+        });
 
-        const memoryTags = messageMemoryTagger.inferTags(chatRequest.message);
-        const relevantMemories = longTermMemoryStore.findRelevant(
-            chatRequest.player.name,
-            memoryTags,
-        );
+        const relevantMemories = memoryRecall.memories;
         const planningContext = planningContextBuilder.build({
             request: chatRequest,
             liveState: liveStateStore.get(chatRequest.player.name),
             relevantMemories,
+            recentMessages,
         });
 
-    const planned = await llmProvider.plan(planningContext);
-    const validation = actionValidator.validate(planned.actions, planningContext);
-    const finalResponse = responseReconciler.reconcile(planned, validation);
+        const planned = await llmProvider.plan(planningContext);
+        const validation = actionValidator.validate(planned.actions, planningContext);
+        const finalResponse = responseReconciler.reconcile(planned, validation, planningContext);
 
-    res.json({
-    	...finalResponse,
-    	rejectedActions: validation.rejectedActions,
-    	recalledMemories: relevantMemories,
-    });
+        conversationStore.add({
+            playerName: chatRequest.player.name,
+            role: "yuri",
+            content: finalResponse.reply,
+        });
+
+        const extractedMemories = await chatMemoryExtractor.extract({
+            request: chatRequest,
+            yuriReply: finalResponse.reply,
+            recentMessages,
+        });
+
+        const storedChatMemories = extractedMemories.map((memory) =>
+            longTermMemoryStore.addOrReinforce(memory)
+        );
+
+        embedMemoriesInBackground(storedChatMemories);
+
+        res.json({
+            ...finalResponse,
+            rejectedActions: validation.rejectedActions,
+            recalledMemories: relevantMemories,
+            memoryRecallDebug: memoryRecall.debug,
+            memoryRecallQuery: memoryRecall.queryText,
+            memoryRecallTags: memoryRecall.tags,
+        });
 
     } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown backend error";
@@ -173,22 +223,74 @@ app.post("/chat", async (req, res) => {
     }
 });
 
+
 app.post("/events", async (req, res) => {
-	const event = (req.body ?? {}) as Partial<GameEvent>;
+    const event = (req.body ?? {}) as Partial<GameEvent>;
 
-	if (!event.type) {
-		res.status(400).json({ error: "event type is required" });
-		return;
-	}
+    if (!event.type) {
+        res.status(400).json({ error: "event type is required" });
+        return;
+    }
 
-	if (!event.player || !event.nearby) {
-		res.status(400).json({ error: "event player and nearby are required" });
-		return;
-	}
+    if (!event.player) {
+        res.status(400).json({ error: "event player is required" });
+        return;
+    }
 
-	console.log("Event received:", event.type, event.player.name);
+    console.log("Event received:", event.type, event.player.name);
 
-	const state = eventRouter.handle(event as GameEvent);
+    //tookeep action completed events seprate from playerStateEvent
+
+    if (event.type === "YuriActionCompleted") {
+        if (!event.action) {
+            res.status(400).json({ error: "event action is required" });
+            return;
+        }
+
+        const now = new Date().toISOString();
+
+        const memory = longTermMemoryStore.addOrReinforce({
+            id: crypto.randomUUID(),
+            playerName: event.player.name,
+            type: "yuri_helped",
+            summary: `Yuri helped ${event.player.name} by hunting a ${event.action.targetName}.`,
+            tags: ["yuri_helped", "hunting", "food", "survival"],
+            location: {
+                world: event.player.world,
+                x: event.player.x,
+                y: event.player.y,
+                z: event.player.z,
+            },
+            importance: 0.65,
+            confidence: 0.9,
+            reinforcementCount: 1,
+            recallCount: 0,
+            evidence: {
+                action: event.action.type,
+                targetName: event.action.targetName,
+                result: event.action.result,
+            },
+            createdAt: now,
+            lastUpdatedAt: now,
+        });
+
+        embedMemoriesInBackground([memory]);
+
+        res.json({
+            accepted: true,
+            memories: [memory],
+            actions: [],
+            recalledMemories: [],
+        });
+        return;
+    }
+
+    if (!("nearby" in event) || !event.nearby) {
+        res.status(400).json({ error: "event nearby is required" });
+        return;
+    }
+
+    const state = eventRouter.handle(event as GameEvent);
     const actions: YuriAction[] = [];
     const memories: MemoryRecord[] = [];
     const recalledMemories: MemoryRecord[] = [];
@@ -196,17 +298,18 @@ app.post("/events", async (req, res) => {
     if (state && "player" in state) {
         const detectedMemories = significantMemoryDetector.detect(state);
 
-        for (const memory of detectedMemories) {
-            const storedMemory = longTermMemoryStore.addOrReinforce(memory);
-            memories.push(storedMemory);
-        }
+		for (const memory of detectedMemories) {
+			const storedMemory = longTermMemoryStore.addOrReinforce(memory);
+			memories.push(storedMemory);
+			embedMemoriesInBackground([storedMemory]);
+		}
 
-    	const intents = reactionEngine.evaluate(state);
+        const intents = reactionEngine.evaluate(state);
 
-    	for (const intent of intents) {
-    		if (!chatterCooldownStore.canSpeak(state.player.name, intent)) {
-    			continue;
-    		}
+        for (const intent of intents) {
+            if (!chatterCooldownStore.canSpeak(state.player.name, intent)) {
+                continue;
+            }
 
             const relevantMemories = longTermMemoryStore.findRelevant(
                 state.player.name,
@@ -214,38 +317,38 @@ app.post("/events", async (req, res) => {
             );
             recalledMemories.push(...relevantMemories);
 
-    		actions.push(await reactionSpeechGenerator.generate(
+            actions.push(await reactionSpeechGenerator.generate(
                 state.player.name,
                 state,
                 intent,
                 relevantMemories,
             ));
             if (intent.reason === "LOW_FOOD_WITH_HUNTABLE_ANIMAL") {
-            	const targetAnimal = intent.context.targetAnimal;
+                const targetAnimal = intent.context.targetAnimal;
 
-            	if (typeof targetAnimal === "string") {
-            		const proposal = proposalStore.create({
-            			playerName: state.player.name,
-            			type: "hunt_entity",
-            			targetName: targetAnimal,
-            			reason: intent.reason,
-            		});
+                if (typeof targetAnimal === "string") {
+                    const proposal = proposalStore.create({
+                        playerName: state.player.name,
+                        type: "hunt_entity",
+                        targetName: targetAnimal,
+                        reason: intent.reason,
+                    });
 
-            		console.log("Proposal created:", proposal);
-            	}
+                    console.log("Proposal created:", proposal);
+                }
             }
-    	}
+        }
     }
 
     //for debugginf creation of proposal
     const pendingProposal = state && "player" in state
-    	? proposalStore.get(state.player.name)
-    	: undefined;
+        ? proposalStore.get(state.player.name)
+        : undefined;
 
     res.json({
-    	accepted: true,
-    	state,
-    	actions,
+        accepted: true,
+        state,
+        actions,
         memories,
         recalledMemories,
         pendingProposal,
@@ -282,10 +385,19 @@ function memoryTagsForReaction(reason: string): string[] {
             return ["discovery", "rare_block", "mining"];
 
         case "LOW_FOOD_WITH_HUNTABLE_ANIMAL":
-        	return ["food", "hunger", "hunting", "survival", "need"];
+            return ["food", "hunger", "hunting", "survival", "need"];
 
         default:
             return [];
+    }
+}
+
+function embedMemoriesInBackground(memories: MemoryRecord[]): void {
+    for (const memory of memories) {
+        memoryEmbeddingService.embedAndStore(memory).catch((error) => {
+            const message = error instanceof Error ? error.message : "Unknown embedding error";
+            console.warn(`Failed to embed memory ${memory.id}: ${message}`);
+        });
     }
 }
 

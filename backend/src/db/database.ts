@@ -22,6 +22,7 @@ database.exec(`
 		z INTEGER NOT NULL,
 		importance REAL NOT NULL,
 		evidence_json TEXT NOT NULL,
+		embedding_json TEXT,
 		created_at TEXT NOT NULL,
 		confidence REAL NOT NULL DEFAULT 0.5,
 		reinforcement_count INTEGER NOT NULL DEFAULT 1,
@@ -35,6 +36,17 @@ database.exec(`
 
 	CREATE INDEX IF NOT EXISTS idx_memories_type
 		ON memories (type);
+
+	CREATE TABLE IF NOT EXISTS conversation_messages (
+    	id TEXT PRIMARY KEY,
+    	player_name TEXT NOT NULL,
+    	role TEXT NOT NULL,
+    	content TEXT NOT NULL,
+    	created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_conversation_messages_player_created
+    	ON conversation_messages (player_name, created_at);
 `);
 
 //migration code
@@ -55,3 +67,4 @@ addColumnIfMissing("reinforcement_count", "reinforcement_count INTEGER NOT NULL 
 addColumnIfMissing("recall_count", "recall_count INTEGER NOT NULL DEFAULT 0");
 addColumnIfMissing("last_updated_at", "last_updated_at TEXT NOT NULL DEFAULT ''");
 addColumnIfMissing("last_recalled_at", "last_recalled_at TEXT");
+addColumnIfMissing("embedding_json", "embedding_json TEXT");

@@ -5,7 +5,7 @@ import type { PlanningContext } from "../planning/PlanningContext.js";
 export class PromptBuilder {
 	buildSystemInstruction(): string {
 		return [
-			"You are Yuri, a friendly Minecraft companion cat speaking to the player.",
+			"You are Yuri, a friendly and sarcastic Minecraft companion cat speaking to the player.",
 			"Output only Yuri's spoken chat message.",
 			"Do not include headings, labels, markdown, analysis, drafts, options, or explanations.",
 			"Do not write phrases like 'Drafting Replies', 'Player Input', or 'Yuri:'.",
@@ -47,13 +47,13 @@ export class PromptBuilder {
 		const liveTotalFoodCount = liveState?.inventory?.totalFoodCount ?? "unknown";
 		const liveUpdatedAt = liveState?.updatedAt ?? "unknown";
 		const memorySection = input.relevantMemories && input.relevantMemories.length > 0
-        	? [
-        		"Relevant memories:",
-        		...input.relevantMemories.map((memory) =>
-        			`- ${memory.summary} Tags: ${memory.tags.join(", ")} Reinforced: ${memory.reinforcementCount} times.`
-        		),
-        	].join("\n")
-        	: "Relevant memories: none.";
+			? [
+				"Relevant memories:",
+				...input.relevantMemories.map((memory) =>
+					`- ${memory.summary} Tags: ${memory.tags.join(", ")} Reinforced: ${memory.reinforcementCount} times.`
+				),
+			].join("\n")
+			: "Relevant memories: none.";
 
 		return [
 			"Current Request:",
@@ -118,8 +118,8 @@ export class PromptBuilder {
 			relevantMemories,
 			"",
 			"If relevant memories are provided, mention the memory subtly without sounding robotic.",
-            "If Yuri is proposing an action, ask for permission and do not claim the action already happened.",
-            "Write Yuri's spoken reaction as one short natural sentence.",
+			"If Yuri is proposing an action, ask for permission and do not claim the action already happened.",
+			"Write Yuri's spoken reaction as one short natural sentence.",
 		].join("\n");
 	}
 
@@ -138,6 +138,11 @@ export class PromptBuilder {
 				.map((memory) => `- ${memory.summary} [tags: ${memory.tags.join(", ")}]`)
 				.join("\n")
 			: "none";
+		const recentConversation = input.recentMessages.length > 0
+			? input.recentMessages
+				.map((message) => `${message.role}: ${message.content}`)
+				.join("\n")
+			: "none";
 
 		return [
 			"You are Yuri's planning system.",
@@ -152,6 +157,9 @@ export class PromptBuilder {
 			"- Do not invent target names.",
 			"- If an action requires approval, ask for permission unless the player clearly commanded it.",
 			"- For hunt_entity, targetName must be a nearby entity.",
+			"",
+			"Recent conversation:",
+			recentConversation,
 			"",
 			`Player message: ${request.message}`,
 			`Player: ${request.player.name}`,

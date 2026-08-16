@@ -5,6 +5,11 @@ export type MemoryType =
 	| "entered_cave"
 	| "discovery"
 	| "home"
+	| "yuri_helped"
+	| "preference"
+	| "personal_fact"
+	| "instruction"
+	| "place"
 	| "playstyle";
 
 export type MemoryLocation = {
@@ -26,6 +31,7 @@ export type MemoryRecord = {
 	reinforcementCount: number;
 	recallCount: number;
 	evidence: Record<string, unknown>;
+	embedding?: number[];
 	createdAt: string;
 	lastUpdatedAt: string;
 	lastRecalledAt?: string;

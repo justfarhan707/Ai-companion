@@ -11,4 +11,14 @@ export type PlayerStateUpdatedEvent = {
 	gameTime?: number;
 };
 
-export type GameEvent = PlayerStateUpdatedEvent;
+export type YuriActionCompletedEvent = {
+	type: "YuriActionCompleted";
+	player: PlayerContext;
+	action: {
+		type: "hunt_entity";
+		targetName: string;
+		result: "success" | "failed";
+	};
+};
+
+export type GameEvent = PlayerStateUpdatedEvent | YuriActionCompletedEvent;
