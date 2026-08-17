@@ -1,0 +1,46 @@
+## old and new recall of yuri 
+
+message/live state
+ -> query text
+ -> infer tags
+ -> tag recall
+ 
+New recall:
+message/live state
+ -> query text
+ -> infer tags
+ -> embed query text
+ -> compare query embedding to memory.embedding
+ -> hybrid score
+ -> return top K memories + debug scores
+
+ recallHybrid:
+
+    getForPlayer()
+        ↓
+    [Memory A, Memory B, Memory C, ...]
+        ↓
+    .map()
+        ↓
+    calculations(cosine similarity)
+        ↓
+    stored becomes this..
+    [
+      { memory: A, score: 0.91, semanticScore: 0.95, ... },
+      { memory: B, score: 0.42, semanticScore: 0.30, ... },
+      { memory: C, score: 0.78, semanticScore: 0.81, ... }
+    ]
+        ↓
+    .filter()
+        ↓
+    remove irrelevant ones
+        ↓
+    .sort()
+        ↓
+    highest score first
+        ↓
+    .slice(0, 5)
+        ↓
+    top 5
+
+  ****better query cinstruction for rag so embeddings are not shallow

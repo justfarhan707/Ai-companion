@@ -40,9 +40,11 @@ const reactionSpeechGenerator = new ReactionSpeechGenerator(llmProvider);
 const longTermMemoryStore = new LongTermMemoryStore();
 const significantMemoryDetector = new SignificantMemoryDetector();
 const messageMemoryTagger = new MessageMemoryTagger();
+const embeddingProvider = new GeminiEmbeddingProvider();
 const memoryRecallService = new MemoryRecallService(
     longTermMemoryStore,
     messageMemoryTagger,
+    embeddingProvider,
 );
 const proposalStore = new ProposalStore();
 const approvalInterpreter = new ApprovalInterpreter();
@@ -53,7 +55,7 @@ const conversationStore = new ConversationStore();
 const chatMemoryExtractor = new ChatMemoryExtractor(new GeminiMemoryExtractor()); //creating two objects at once
 const memoryEmbeddingService = new MemoryEmbeddingService(
     longTermMemoryStore,
-    new GeminiEmbeddingProvider(),
+    embeddingProvider,
 );
 
 
@@ -163,7 +165,7 @@ app.post("/chat", async (req, res) => {
             return;
         }
         const recentMessages = conversationStore.getRecent(chatRequest.player.name, 10);
-        const memoryRecall = memoryRecallService.recall({
+        const memoryRecall = await memoryRecallService.recall({
             playerName: chatRequest.player.name,
             message: chatRequest.message,
             request: chatRequest,
@@ -209,6 +211,7 @@ app.post("/chat", async (req, res) => {
             memoryRecallDebug: memoryRecall.debug,
             memoryRecallQuery: memoryRecall.queryText,
             memoryRecallTags: memoryRecall.tags,
+            memoryRecallCandidateCount: memoryRecall.candidateCount,
         });
 
     } catch (error) {
@@ -298,11 +301,11 @@ app.post("/events", async (req, res) => {
     if (state && "player" in state) {
         const detectedMemories = significantMemoryDetector.detect(state);
 
-		for (const memory of detectedMemories) {
-			const storedMemory = longTermMemoryStore.addOrReinforce(memory);
-			memories.push(storedMemory);
-			embedMemoriesInBackground([storedMemory]);
-		}
+        for (const memory of detectedMemories) {
+            const storedMemory = longTermMemoryStore.addOrReinforce(memory);
+            memories.push(storedMemory);
+            embedMemoriesInBackground([storedMemory]);
+        }
 
         const intents = reactionEngine.evaluate(state);
 

@@ -106,6 +106,37 @@ export class LongTermMemoryStore {
 		ORDER BY importance DESC, reinforcement_count DESC, created_at DESC
 	`);
 
+	private readonly selectRecallCandidatesForPlayer = database.prepare(`
+		SELECT
+			id,
+			player_name,
+			type,
+			summary,
+			tags_json,
+			world,
+			x,
+			y,
+			z,
+			importance,
+			confidence,
+			reinforcement_count,
+			recall_count,
+			evidence_json,
+			embedding_json,
+			created_at,
+			last_updated_at,
+			last_recalled_at
+		FROM memories
+		WHERE player_name = ?
+		  AND embedding_json IS NOT NULL
+		ORDER BY
+			importance DESC,
+			reinforcement_count DESC,
+			last_updated_at DESC,
+			created_at DESC
+		LIMIT ?
+	`);
+
 	addOrReinforce(memory: MemoryRecord): MemoryRecord {
 		const existing = this.findSimilar(memory);
 
@@ -125,6 +156,11 @@ export class LongTermMemoryStore {
 
 	getForPlayer(playerName: string): MemoryRecord[] {
 		const rows = this.selectMemoriesForPlayer.all(playerName) as MemoryRow[];
+		return rows.map((row) => this.toMemoryRecord(row));
+	}
+
+	getRecallCandidates(playerName: string, limit = 500): MemoryRecord[] {
+		const rows = this.selectRecallCandidatesForPlayer.all(playerName, limit) as MemoryRow[];
 		return rows.map((row) => this.toMemoryRecord(row));
 	}
 
@@ -148,6 +184,12 @@ export class LongTermMemoryStore {
 		}
 
 		return relevant;
+	}
+
+	markMemoriesRecalled(memories: MemoryRecord[]): void {
+		for (const memory of memories) {
+			this.markRecalled(memory);
+		}
 	}
 
 	updateEmbedding(memoryId: string, embedding: number[]): void {
