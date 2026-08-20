@@ -1,6 +1,7 @@
 import type { PlanningContext } from "../planning/PlanningContext.js";
 import type { YuriAction } from "../types/actions.js";
 import type { ActionValidationResult, RejectedAction } from "./ActionValidation.js";
+import { YuriToolRegistry } from "./YuriToolRegistry.js";
 
 
 const HUNTABLE_FOOD_ANIMALS = new Set([
@@ -12,6 +13,9 @@ const HUNTABLE_FOOD_ANIMALS = new Set([
 ]);
 
 export class ActionValidator{
+
+    private readonly toolRegistry = new YuriToolRegistry();
+
    	validate(actions: unknown[], context: PlanningContext): ActionValidationResult {
    		const validActions: YuriAction[] = [];
    		const rejectedActions: RejectedAction[] = [];
@@ -45,6 +49,15 @@ export class ActionValidator{
    			};
    		}
 
+		if (!this.toolRegistry.isKnownTool(action.type)) {
+			return {
+				rejectedAction: {
+					action,
+					reason: "unsupported_action",
+				},
+			};
+		}
+
    		if (action.type === "say") {
    			if (typeof action.text !== "string" || action.text.trim().length === 0) {
    				return {
@@ -66,13 +79,56 @@ export class ActionValidator{
        			return this.validateHuntEntity(action, context);
        		}
 
+        if (action.type === "remember_place") {
+        	return this.validateRememberPlace(action);
+        }
+
+		if (action.type === "stop_action") {
+			return {
+				validAction: {
+					type: "stop_action",
+				},
+			};
+		}
+
        		return {
        			rejectedAction: {
        				action,
        				reason: "unsupported_action",
        			},
+       			};
+       	}
+
+       private validateRememberPlace(
+       	action: Record<string, unknown>
+       ): { validAction: YuriAction } | { rejectedAction: RejectedAction } {
+       	if (typeof action.placeName !== "string" || action.placeName.trim().length === 0) {
+       		return {
+       			rejectedAction: {
+       				action,
+       				reason: "missing_target",
+       			},
        		};
        	}
+
+       	const placeName = action.placeName.trim().toLowerCase();
+
+       	if (placeName.length > 40) {
+       		return {
+       			rejectedAction: {
+       				action,
+       				reason: "invalid_shape",
+       			},
+       		};
+       	}
+
+       	return {
+       		validAction: {
+       			type: "remember_place",
+       			placeName,
+       		},
+       	};
+       }
 
        private validateHuntEntity(
        		action: Record<string, unknown>,

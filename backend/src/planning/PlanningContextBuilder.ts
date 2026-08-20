@@ -5,8 +5,11 @@ import type { MemoryRecord } from "../memory/MemoryRecord.js";
 import type { LiveStateTypes } from "../state/LiveStateTypes.js";
 import type { PlanningContext } from "./PlanningContext.js";
 import type { ConversationMessage } from "../conversation/ConversationMessage.js";
+import { YuriToolRegistry } from "../actions/YuriToolRegistry.js";
 
 export class PlanningContextBuilder {
+	private readonly toolRegistry = new YuriToolRegistry();
+
 	build(input: {
 		request: ChatRequest;
 		liveState?: LiveStateTypes;
@@ -18,18 +21,7 @@ export class PlanningContextBuilder {
 			liveState: input.liveState,
 			relevantMemories: input.relevantMemories,
 			recentMessages: input.recentMessages,
-			availableActions: [
-				{
-					type: "say",
-					description: "Speak naturally to the player.",
-					requiresApproval: false,
-				},
-				{
-					type: "hunt_entity",
-					description: "Ask Yuri to move toward a nearby passive food animal such as Pig, Cow, Sheep, Chicken, or Rabbit.",
-					requiresApproval: true,
-				},
-			],
+			availableActions: this.toolRegistry.getAvailableTools(),
 		};
 	}
 }

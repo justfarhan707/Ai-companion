@@ -311,5 +311,38 @@ public class YuriCompanionController {
 				result
 		);
 	}
+	public String stopCurrentAction(MinecraftServer server) {
+		if (yuriUuid == null || yuriOwnerUuid == null) {
+			return "I don't have anything to stop right now.";
+		}
 
-}
+		ServerPlayerEntity owner = server.getPlayerManager().getPlayer(yuriOwnerUuid);
+
+		if (owner == null) {
+			return "I can't find you right now.";
+		}
+
+		CatEntity yuri = findTrackedOrExistingYuri(owner);
+
+		if (yuri == null) {
+			return "I can't find my body right now.";
+		}
+
+		boolean hadTask = huntTargetUuid != null;
+
+		huntTargetUuid = null;
+		huntTargetName = null;
+		huntAttackCooldownTicks = 0;
+
+		yuri.getNavigation().stop();
+		yuri.setSitting(false);
+		yuriActive = true;
+
+		if (hadTask) {
+			return "Okay, I stopped.";
+		}
+
+		return "I'm not doing anything urgent right now.";
+	}
+
+	}

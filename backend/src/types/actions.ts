@@ -8,4 +8,17 @@ export type HuntEntityAction = {
 	targetName: string;
 };
 
-export type YuriAction = SayAction | HuntEntityAction;
+export type RememberPlaceAction = {
+	type: "remember_place";
+	placeName: string;
+};
+
+export type StopAction = {
+	type: "stop_action";
+};
+
+export type YuriAction =
+	| SayAction
+	| HuntEntityAction
+	| RememberPlaceAction
+	| StopAction;

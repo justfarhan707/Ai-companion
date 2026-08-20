@@ -65,6 +65,7 @@ export class LongTermMemoryStore {
 		)
 	`);
 
+
 	private readonly updateMemory = database.prepare(`
 		UPDATE memories
 		SET
@@ -137,6 +138,37 @@ export class LongTermMemoryStore {
 		LIMIT ?
 	`);
 
+	private readonly selectMemoriesMissingEmbeddingsForPlayer = database.prepare(`
+		SELECT
+			id,
+			player_name,
+			type,
+			summary,
+			tags_json,
+			world,
+			x,
+			y,
+			z,
+			importance,
+			confidence,
+			reinforcement_count,
+			recall_count,
+			evidence_json,
+			embedding_json,
+			created_at,
+			last_updated_at,
+			last_recalled_at
+		FROM memories
+		WHERE player_name = ?
+		  AND embedding_json IS NULL
+		ORDER BY
+			importance DESC,
+			reinforcement_count DESC,
+			created_at DESC
+		LIMIT ?
+	`);
+
+
 	addOrReinforce(memory: MemoryRecord): MemoryRecord {
 		const existing = this.findSimilar(memory);
 
@@ -159,8 +191,55 @@ export class LongTermMemoryStore {
 		return rows.map((row) => this.toMemoryRecord(row));
 	}
 
+
+	getByIds(playerName: string, memoryIds: string[]): MemoryRecord[] {
+		if (memoryIds.length === 0) {
+			return [];
+		}
+
+		const placeholders = memoryIds.map(() => "?").join(",");
+
+		const rows = database.prepare(`
+		SELECT
+			id,
+			player_name,
+			type,
+			summary,
+			tags_json,
+			world,
+			x,
+			y,
+			z,
+			importance,
+			confidence,
+			reinforcement_count,
+			recall_count,
+			evidence_json,
+			embedding_json,
+			created_at,
+			last_updated_at,
+			last_recalled_at
+		FROM memories
+		WHERE player_name = ?
+		  AND id IN (${placeholders})
+	`).all(playerName, ...memoryIds) as MemoryRow[];
+		const byId = new Map(
+			rows.map((row) => [row.id, this.toMemoryRecord(row)])
+		);
+
+		return memoryIds
+			.map((id) => byId.get(id))
+			.filter((memory): memory is MemoryRecord => memory !== undefined);
+	}
+
+
 	getRecallCandidates(playerName: string, limit = 500): MemoryRecord[] {
 		const rows = this.selectRecallCandidatesForPlayer.all(playerName, limit) as MemoryRow[];
+		return rows.map((row) => this.toMemoryRecord(row));
+	}
+
+	getMemoriesMissingEmbeddings(playerName: string, limit = 50): MemoryRecord[] {
+		const rows = this.selectMemoriesMissingEmbeddingsForPlayer.all(playerName, limit) as MemoryRow[];
 		return rows.map((row) => this.toMemoryRecord(row));
 	}
 

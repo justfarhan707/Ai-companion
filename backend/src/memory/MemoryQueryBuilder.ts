@@ -2,6 +2,7 @@
 import type { ConversationMessage } from "../conversation/ConversationMessage.js";
 import type { LiveStateTypes } from "../state/LiveStateTypes.js";
 import type { ChatRequest } from "../types/chat.js";
+import type { MemoryType } from "./MemoryRecord.js";
 
 export type MemoryQueryInput = {
 	playerName: string;
@@ -11,8 +12,15 @@ export type MemoryQueryInput = {
 	recentMessages?: ConversationMessage[];
 };
 
+export type MemoryQuery = {
+	text: string;
+	preferredTypes: MemoryType[];
+	avoidTypes: MemoryType[];
+};
+
+
 export class MemoryQueryBuilder {
-	build(input: MemoryQueryInput): string {
+	build(input: MemoryQueryInput): MemoryQuery {
 		const parts: string[] = [];
 		const message = input.message.trim();
 		const lowerMessage = message.toLowerCase();
@@ -29,8 +37,71 @@ export class MemoryQueryBuilder {
 			parts.push(stateLine);
 		}
 
-		return parts.join("\n");
+		return {
+			text: parts.join("\n"),
+			preferredTypes: this.inferPreferredTypes(lowerMessage),
+			avoidTypes: this.inferAvoidTypes(lowerMessage),
+		};
 	}
+
+
+	private inferPreferredTypes(message: string): MemoryType[] {
+		const types = new Set<MemoryType>();
+
+		if (this.isPreferenceQuestion(message)) {
+			types.add("preference");
+			types.add("personal_fact");
+		}
+
+		if (this.isPlaceQuestion(message)) {
+			types.add("home");
+			types.add("place");
+		}
+
+		if (this.isIdentityQuestion(message)) {
+			types.add("personal_fact");
+		}
+
+		if (this.isAdviceQuestion(message)) {
+			types.add("instruction");
+			types.add("playstyle");
+			types.add("preference");
+			types.add("yuri_helped");
+		}
+
+		if (this.isDangerExpression(message)) {
+			types.add("near_death");
+			types.add("death");
+			types.add("lava_danger");
+			types.add("instruction");
+			types.add("playstyle");
+		}
+
+		if (this.isHelpOrActionRequest(message)) {
+			types.add("instruction");
+			types.add("playstyle");
+			types.add("yuri_helped");
+		}
+
+		return [...types];
+	}
+
+	private inferAvoidTypes(message: string): MemoryType[] {
+		const types = new Set<MemoryType>();
+
+		if (
+			this.isPreferenceQuestion(message) ||
+			this.isPlaceQuestion(message) ||
+			this.isIdentityQuestion(message)
+		) {
+			types.add("near_death");
+			types.add("death");
+			types.add("lava_danger");
+		}
+
+		return [...types];
+	}
+
 
 	private describeMessageIntent(lowerMessage: string): string[] {
 		const lines: string[] = [];

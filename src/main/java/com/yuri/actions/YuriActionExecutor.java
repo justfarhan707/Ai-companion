@@ -40,6 +40,9 @@ public class YuriActionExecutor {
             if ("hunt_entity".equals(type)) {
                 executeHuntEntity(server, action);
             }
+            if ("stop_action".equals(type)) {
+                executeStopAction(server);
+            }
         }
     }
 
@@ -70,6 +73,13 @@ public class YuriActionExecutor {
         }
 
         String message = companionController.huntNearest(server, targetName);
+
+        server.getPlayerManager()
+                .broadcast(Text.literal("<Yuri> " + message), false);
+    }
+
+    private void executeStopAction(MinecraftServer server) {
+        String message = companionController.stopCurrentAction(server);
 
         server.getPlayerManager()
                 .broadcast(Text.literal("<Yuri> " + message), false);

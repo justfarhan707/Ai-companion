@@ -7,8 +7,9 @@ import type { LiveStateTypes } from "../state/LiveStateTypes.js";
 import type { MemoryRecord } from "./MemoryRecord.js";
 import { LongTermMemoryStore } from "./LongTermMemoryStore.js";
 import { MessageMemoryTagger } from "./MessageMemoryTagger.js";
-import { MemoryQueryBuilder } from "./MemoryQueryBuilder.js";
+import { MemoryQueryBuilder, type MemoryQuery } from "./MemoryQueryBuilder.js";
 import type { EmbeddingProvider } from "./embedding/EmbeddingProvider.js";
+import type { MemoryVectorIndex } from "./vector/MemoryVectorIndex.js";
 
 export type MemoryRecallInput = {
 	playerName: string;
@@ -25,6 +26,7 @@ export type MemoryRecallDebugItem = {
 	score: number;
 	semanticScore: number;
 	tagScore: number;
+	typeScore: number;
 	reasons: string[];
 };
 
@@ -34,6 +36,8 @@ export type MemoryRecallResult = {
 	queryText: string;
 	tags: string[];
 	candidateCount: number;
+	vectorResultCount: number;
+	query: MemoryQuery;
 };
 
 export class MemoryRecallService {
@@ -43,15 +47,17 @@ export class MemoryRecallService {
 		private readonly longTermMemoryStore: LongTermMemoryStore,
 		private readonly messageMemoryTagger: MessageMemoryTagger,
 		private readonly embeddingProvider?: EmbeddingProvider,
+		private readonly vectorIndex?: MemoryVectorIndex,
 	) {
 	}
 
 	async recall(input: MemoryRecallInput): Promise<MemoryRecallResult> {
-		const queryText = this.queryBuilder.build(input);
+		const query = this.queryBuilder.build(input);
+		const queryText = query.text;
 		const tags = this.inferTags(input, queryText);
 
 		if (!this.embeddingProvider) {
-			return this.recallByTags(input, queryText, tags);
+			return this.recallByTags(input, query, tags);
 		}
 
 		try {
@@ -60,10 +66,9 @@ export class MemoryRecallService {
 				"RETRIEVAL_QUERY",
 			);
 
-			return this.recallHybrid(input, queryText, tags, queryEmbedding);
+			return await this.recallHybrid(input, query, tags, queryEmbedding);
 		} catch (error) {
-			const fallback = this.recallByTags(input, queryText, tags);
-
+			const fallback = this.recallByTags(input, query, tags);
 			return {
 				...fallback,
 				debug: fallback.debug.map((item) => ({
@@ -74,44 +79,67 @@ export class MemoryRecallService {
 		}
 	}
 
-	private recallHybrid(
+	private async recallHybrid(
 		input: MemoryRecallInput,
-		queryText: string,
+		query: MemoryQuery,
 		tags: string[],
 		queryEmbedding: number[],
-	): MemoryRecallResult {
-		const candidates = this.longTermMemoryStore.getRecallCandidates(
-			input.playerName,
-			500,
+	): Promise<MemoryRecallResult> {
+		const queryText = query.text;
+		const vectorResults = this.vectorIndex
+			? await this.vectorIndex.search({
+				playerName: input.playerName,
+				queryEmbedding,
+				limit: 100,
+				preferredTypes: query.preferredTypes,
+				avoidTypes: query.avoidTypes,
+			})
+			: [];
+
+		const semanticScoreByMemoryId = new Map(
+			vectorResults.map((result) => [result.memoryId, result.semanticScore])
 		);
+
+		const vectorMemoryIds = vectorResults.map((result) => result.memoryId);
+
+		const candidates = vectorMemoryIds.length > 0
+			? this.longTermMemoryStore.getByIds(input.playerName, vectorMemoryIds)
+			: this.longTermMemoryStore.getRecallCandidates(input.playerName, 500);
 
 		const scored = candidates
 			.map((memory) => {
-				const semanticScore = memory.embedding
-					? this.cosineSimilarity(queryEmbedding, memory.embedding)
-					: 0;
+				const semanticScore = semanticScoreByMemoryId.get(memory.id) ?? 0;
 
 				const tagScore = this.calculateTagScore(memory, tags);
+				const typeScore = this.calculateTypeScore(memory, query);
+				const avoidPenalty = query.avoidTypes.includes(memory.type) ? 0.25 : 0;
 				const reinforcementBoost = Math.min(memory.reinforcementCount * 0.03, 0.15);
 
 				const score =
-					semanticScore * 0.65 +
-					tagScore * 0.2 +
+					semanticScore * 0.55 +
+					tagScore * 0.15 +
+					typeScore * 0.15 +
 					memory.importance * 0.1 +
 					memory.confidence * 0.05 +
-					reinforcementBoost;
+					reinforcementBoost -
+					avoidPenalty;
 
 				return {
 					memory,
 					score,
 					semanticScore,
 					tagScore,
-					reasons: this.explainRecall(memory, tags, semanticScore, tagScore),
+					typeScore,
+					reasons: this.explainRecall(memory, tags, semanticScore, tagScore, typeScore, query),
 				};
 			})
 			.filter((result) =>
-				result.semanticScore >= 0.55 ||
-				result.tagScore > 0
+				result.score > 0 &&
+				(
+					result.semanticScore >= 0.55 ||
+					result.tagScore > 0 ||
+					result.typeScore > 0
+				)
 			)
 			.sort((a, b) => b.score - a.score)
 			.slice(0, input.limit ?? 5);
@@ -129,19 +157,23 @@ export class MemoryRecallService {
 				score: this.roundScore(result.score),
 				semanticScore: this.roundScore(result.semanticScore),
 				tagScore: this.roundScore(result.tagScore),
+				typeScore: this.roundScore(result.typeScore),
 				reasons: result.reasons,
 			})),
 			queryText,
 			tags,
 			candidateCount: candidates.length,
+			vectorResultCount: vectorResults.length,
+			query,
 		};
 	}
 
 	private recallByTags(
 		input: MemoryRecallInput,
-		queryText: string,
+		query: MemoryQuery,
 		tags: string[],
 	): MemoryRecallResult {
+		const queryText = query.text;
 		const memories = this.longTermMemoryStore.findRelevant(
 			input.playerName,
 			tags,
@@ -152,6 +184,7 @@ export class MemoryRecallService {
 			memories,
 			debug: memories.map((memory) => {
 				const tagScore = this.calculateTagScore(memory, tags);
+				const typeScore = this.calculateTypeScore(memory, query);
 
 				return {
 					memoryId: memory.id,
@@ -159,12 +192,15 @@ export class MemoryRecallService {
 					score: tagScore,
 					semanticScore: 0,
 					tagScore,
-					reasons: this.explainRecall(memory, tags, 0, tagScore),
+					typeScore,
+					reasons: this.explainRecall(memory, tags, 0, tagScore, typeScore, query),
 				};
 			}),
 			queryText,
 			tags,
 			candidateCount: memories.length,
+			vectorResultCount: 0,
+			query,
 		};
 	}
 
@@ -184,26 +220,12 @@ export class MemoryRecallService {
 		return matched / tags.length;
 	}
 
-	private cosineSimilarity(a: number[], b: number[]): number {
-		if (a.length === 0 || b.length === 0 || a.length !== b.length) {
+	private calculateTypeScore(memory: MemoryRecord, query: MemoryQuery): number {
+		if (query.preferredTypes.length === 0) {
 			return 0;
 		}
 
-		let dot = 0;
-		let normA = 0;
-		let normB = 0;
-
-		for (let index = 0; index < a.length; index++) {
-			dot += a[index] * b[index];
-			normA += a[index] * a[index];
-			normB += b[index] * b[index];
-		}
-
-		if (normA === 0 || normB === 0) {
-			return 0;
-		}
-
-		return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+		return query.preferredTypes.includes(memory.type) ? 1 : 0;
 	}
 
 	private roundScore(score: number): number {
@@ -234,6 +256,8 @@ export class MemoryRecallService {
 		tags: string[],
 		semanticScore: number,
 		tagScore: number,
+		typeScore: number,
+		query: MemoryQuery,
 	): string[] {
 		const reasons: string[] = [];
 
@@ -249,6 +273,14 @@ export class MemoryRecallService {
 
 		if (tagScore > 0) {
 			reasons.push("tag_match");
+		}
+
+		if (typeScore > 0) {
+			reasons.push("preferred_type");
+		}
+
+		if (query.avoidTypes.includes(memory.type)) {
+			reasons.push("avoid_type_penalty");
 		}
 
 		if (memory.importance >= 0.8) {

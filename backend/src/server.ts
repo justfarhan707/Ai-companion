@@ -17,6 +17,7 @@ import type { MemoryRecord } from "./memory/MemoryRecord.js";
 import { MessageMemoryTagger } from "./memory/MessageMemoryTagger.js";
 import { ProposalStore } from "./actions/ProposalStore.js";
 import { ApprovalInterpreter } from "./actions/ApprovalInterpreter.js";
+import { BackendActionExecutor } from "./actions/BackendActionExecutor.js";
 import { PlanningContextBuilder } from "./planning/PlanningContextBuilder.js";
 import { ActionValidator } from "./actions/ActionValidator.js";
 import { ResponseReconciler } from "./planning/ResponseReconciler.js";
@@ -26,6 +27,7 @@ import { ChatMemoryExtractor } from "./memory/ChatMemoryExtractor.js";
 import { MemoryRecallService } from "./memory/MemoryRecallService.js";
 import { GeminiEmbeddingProvider } from "./memory/embedding/GeminiEmbeddingProvider.js";
 import { MemoryEmbeddingService } from "./memory/embedding/MemoryEmbeddingService.js";
+import { LanceDbMemoryVectorIndex } from "./memory/vector/LanceDbMemoryVectorIndex.js";
 
 const app = express();
 const port = 3001;
@@ -38,6 +40,7 @@ const reactionEngine = new ReactionEngine();
 const chatterCooldownStore = new ChatterCooldownStore();
 const reactionSpeechGenerator = new ReactionSpeechGenerator(llmProvider);
 const longTermMemoryStore = new LongTermMemoryStore();
+const memoryVectorIndex = new LanceDbMemoryVectorIndex();
 const significantMemoryDetector = new SignificantMemoryDetector();
 const messageMemoryTagger = new MessageMemoryTagger();
 const embeddingProvider = new GeminiEmbeddingProvider();
@@ -45,6 +48,7 @@ const memoryRecallService = new MemoryRecallService(
     longTermMemoryStore,
     messageMemoryTagger,
     embeddingProvider,
+    memoryVectorIndex,
 );
 const proposalStore = new ProposalStore();
 const approvalInterpreter = new ApprovalInterpreter();
@@ -54,8 +58,13 @@ const responseReconciler = new ResponseReconciler();
 const conversationStore = new ConversationStore();
 const chatMemoryExtractor = new ChatMemoryExtractor(new GeminiMemoryExtractor()); //creating two objects at once
 const memoryEmbeddingService = new MemoryEmbeddingService(
+	longTermMemoryStore,
+	embeddingProvider,
+	memoryVectorIndex,
+);
+const backendActionExecutor = new BackendActionExecutor(
     longTermMemoryStore,
-    embeddingProvider,
+    memoryEmbeddingService,
 );
 
 
@@ -185,6 +194,10 @@ app.post("/chat", async (req, res) => {
         const planned = await llmProvider.plan(planningContext);
         const validation = actionValidator.validate(planned.actions, planningContext);
         const finalResponse = responseReconciler.reconcile(planned, validation, planningContext);
+        const backendActionResult = backendActionExecutor.execute({
+            request: chatRequest,
+            actions: finalResponse.actions,
+        });
 
         conversationStore.add({
             playerName: chatRequest.player.name,
@@ -206,12 +219,19 @@ app.post("/chat", async (req, res) => {
 
         res.json({
             ...finalResponse,
+            actions: backendActionResult.javaActions,
             rejectedActions: validation.rejectedActions,
+            backendExecutedMemories: backendActionResult.memories,
             recalledMemories: relevantMemories,
             memoryRecallDebug: memoryRecall.debug,
             memoryRecallQuery: memoryRecall.queryText,
             memoryRecallTags: memoryRecall.tags,
             memoryRecallCandidateCount: memoryRecall.candidateCount,
+            memoryRecallVectorResultCount: memoryRecall.vectorResultCount,
+            memoryRecallQueryHints: {
+                preferredTypes: memoryRecall.query.preferredTypes,
+                avoidTypes: memoryRecall.query.avoidTypes,
+            },
         });
 
     } catch (error) {
@@ -365,6 +385,54 @@ app.get("/memory/:playerName", (req, res) => {
         playerName,
         memories: longTermMemoryStore.getForPlayer(playerName),
     });
+});
+
+app.post("/memory/:playerName/backfill-embeddings", async (req, res) => {
+    const playerName = req.params.playerName;
+    const requestedLimit = Number(req.body?.limit ?? 50);
+
+    try {
+        const result = await memoryEmbeddingService.backfillMissingEmbeddings({
+            playerName,
+            limit: Number.isFinite(requestedLimit) ? requestedLimit : 50,
+        });
+
+        res.json({
+            playerName,
+            ...result,
+        });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown backfill error";
+
+        res.status(503).json({
+            playerName,
+            error: message,
+        });
+    }
+});
+
+app.post("/memory/:playerName/reindex-vectors", async (req, res) => {
+    const playerName = req.params.playerName;
+    const requestedLimit = Number(req.body?.limit ?? 500);
+
+    try {
+        const result = await memoryEmbeddingService.reindexExistingEmbeddings({
+            playerName,
+            limit: Number.isFinite(requestedLimit) ? requestedLimit : 500,
+        });
+
+        res.json({
+            playerName,
+            ...result,
+        });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown vector reindex error";
+
+        res.status(503).json({
+            playerName,
+            error: message,
+        });
+    }
 });
 
 function memoryTagsForReaction(reason: string): string[] {
