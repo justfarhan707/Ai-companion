@@ -28,6 +28,10 @@ import { MemoryRecallService } from "./memory/MemoryRecallService.js";
 import { GeminiEmbeddingProvider } from "./memory/embedding/GeminiEmbeddingProvider.js";
 import { MemoryEmbeddingService } from "./memory/embedding/MemoryEmbeddingService.js";
 import { LanceDbMemoryVectorIndex } from "./memory/vector/LanceDbMemoryVectorIndex.js";
+import { BehaviorObservationStore } from "./behavior/BehaviorObservationStore.js";
+import { BehaviorObservationDetector } from "./behavior/BehaviorObservationDetector.js";
+import { BehaviorReflectionService } from "./behavior/BehaviorReflectionService.js";
+import { BehaviorMemoryWriter } from "./behavior/BehaviorMemoryWriter.js";
 
 const app = express();
 const port = 3001;
@@ -66,6 +70,10 @@ const backendActionExecutor = new BackendActionExecutor(
     longTermMemoryStore,
     memoryEmbeddingService,
 );
+const behaviorObservationStore = new BehaviorObservationStore();
+const behaviorObservationDetector = new BehaviorObservationDetector();
+const behaviorReflectionService = new BehaviorReflectionService();
+const behaviorMemoryWriter = new BehaviorMemoryWriter();
 
 
 app.use(cors());
@@ -328,6 +336,45 @@ app.post("/events", async (req, res) => {
             embedMemoriesInBackground([storedMemory]);
         }
 
+        const behaviorObservations = behaviorObservationDetector.detect(state);
+
+        for (const observation of behaviorObservations) {
+            behaviorObservationStore.add(observation);
+        }
+
+        const unreflectedBehaviorObservations = behaviorObservationStore.getUnreflected(
+            state.player.name,
+            12,
+        );
+
+        if (unreflectedBehaviorObservations.length >= 8) {
+            try {
+                const reflection = await behaviorReflectionService.reflect({
+                    playerName: state.player.name,
+                    observations: unreflectedBehaviorObservations,
+                });
+
+                behaviorObservationStore.markReflected(
+                    unreflectedBehaviorObservations.map((observation) => observation.id),
+                );
+
+                const behaviorMemory = behaviorMemoryWriter.toMemory({
+                    playerName: state.player.name,
+                    reflection,
+                    observations: unreflectedBehaviorObservations,
+                });
+
+                if (behaviorMemory) {
+                    const storedMemory = longTermMemoryStore.addOrReinforce(behaviorMemory);
+                    memories.push(storedMemory);
+                    embedMemoriesInBackground([storedMemory]);
+                }
+            } catch (error) {
+                const message = error instanceof Error ? error.message : "Unknown behavior reflection error";
+                console.warn(`Behavior reflection failed for ${state.player.name}: ${message}`);
+            }
+        }
+
         const intents = reactionEngine.evaluate(state);
         const recentMessages = conversationStore.getRecent(state.player.name, 10);
 
@@ -486,17 +533,18 @@ function reactionMemoryQuery(reason: string, intent: string, state: ReturnType<L
         .map((block) => block.name)
         .join(", ") || "none";
 
-    return [
-        `Current Minecraft event: ${reason}.`,
-        `Yuri intent: ${intent}`,
-        `Player health: ${state?.health ?? "unknown"}.`,
-        `Player hunger: ${state?.hunger ?? "unknown"}.`,
-        `Current danger level: ${state?.danger ?? "unknown"}.`,
-        `Nearby entities: ${nearbyEntities}.`,
-        `Nearby blocks: ${nearbyBlocks}.`,
-        `Useful memory tags: ${memoryTagsForReaction(reason).join(", ") || "none"}.`,
-        "Recall past player memories, dangers, preferences, instructions, or places that are relevant to this situation.",
-    ].join("\n");
+return [
+	`Current Minecraft event: ${reason}.`,
+	`Yuri intent: ${intent}`,
+	`Player health: ${state?.health ?? "unknown"}.`,
+	`Player hunger: ${state?.hunger ?? "unknown"}.`,
+	`Current danger level: ${state?.danger ?? "unknown"}.`,
+	`Nearby entities: ${nearbyEntities}.`,
+	`Nearby blocks: ${nearbyBlocks}.`,
+	`Useful memory tags: ${memoryTagsForReaction(reason).join(", ") || "none"}.`,
+	"Recall playstyle memories learned from behavioral reflection when relevant.",
+	"Recall past player memories, dangers, preferences, instructions, or places that are relevant to this situation.",
+].join("\n");
 }
 
 app.listen(port, () => {

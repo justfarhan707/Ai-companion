@@ -47,6 +47,20 @@ database.exec(`
 
     CREATE INDEX IF NOT EXISTS idx_conversation_messages_player_created
     	ON conversation_messages (player_name, created_at);
+
+    CREATE TABLE IF NOT EXISTS behavior_observations (
+    	id TEXT PRIMARY KEY,
+    	player_name TEXT NOT NULL,
+    	situation TEXT NOT NULL,
+    	player_action TEXT NOT NULL,
+    	context_json TEXT NOT NULL,
+    	importance REAL NOT NULL,
+    	reflected INTEGER NOT NULL DEFAULT 0,
+    	created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_behavior_observations_player_reflected
+    	ON behavior_observations (player_name, reflected, created_at);
 `);
 
 //migration code
