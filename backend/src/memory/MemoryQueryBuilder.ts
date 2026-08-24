@@ -202,16 +202,26 @@ export class MemoryQueryBuilder {
 		);
 	}
 
-	private isPlaceQuestion(message: string): boolean {
-		return (
-			message.includes("where is my base") ||
-			message.includes("where is home") ||
-			message.includes("where's home") ||
-			message.includes("remember this place") ||
-			message.includes("my base") ||
-			message.includes("my home")
-		);
-	}
+private isPlaceQuestion(message: string): boolean {
+	return (
+		message.includes("where is my base") ||
+		message.includes("where is home") ||
+		message.includes("where's home") ||
+		message.includes("remember this place") ||
+		message.includes("my base") ||
+		message.includes("my home") ||
+		message.includes("go home") ||
+		message.includes("go to home") ||
+		message.includes("take me home") ||
+		message.includes("lead me home") ||
+		message.includes("go to my base") ||
+		message.includes("take me to my base") ||
+		message.includes("lead me to my base") ||
+		message.includes("go to base") ||
+		message.includes("take me to base") ||
+		message.includes("lead me to base")
+	);
+}
 
 	private isIdentityQuestion(message: string): boolean {
 		return (
@@ -252,7 +262,11 @@ export class MemoryQueryBuilder {
 			message.includes("follow") ||
 			message.includes("come here") ||
 			message.includes("go get") ||
-			message.includes("bring")
+			message.includes("bring") ||
+			message.includes("go to") ||
+            message.includes("take me to") ||
+            message.includes("lead me to") ||
+            message.includes("go home")
 		);
 	}
 }

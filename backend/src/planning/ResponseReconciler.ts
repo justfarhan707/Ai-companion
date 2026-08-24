@@ -12,6 +12,7 @@ const ACTION_WORDS = [
 	"take",
 	"come",
 	"go",
+	"lead",
 	"follow",
 	"teleport",
 	"help",
@@ -60,6 +61,9 @@ export class ResponseReconciler {
 
     			case "unsupported_action":
     				return "I can't do that yet.";
+
+    			case "place_not_remembered":
+    				return "I don't remember that place yet. Show me where it is first.";
 
     			default:
     				return "I can't do that safely right now.";

@@ -58,9 +58,9 @@ const responseReconciler = new ResponseReconciler();
 const conversationStore = new ConversationStore();
 const chatMemoryExtractor = new ChatMemoryExtractor(new GeminiMemoryExtractor()); //creating two objects at once
 const memoryEmbeddingService = new MemoryEmbeddingService(
-	longTermMemoryStore,
-	embeddingProvider,
-	memoryVectorIndex,
+    longTermMemoryStore,
+    embeddingProvider,
+    memoryVectorIndex,
 );
 const backendActionExecutor = new BackendActionExecutor(
     longTermMemoryStore,
@@ -197,6 +197,7 @@ app.post("/chat", async (req, res) => {
         const backendActionResult = backendActionExecutor.execute({
             request: chatRequest,
             actions: finalResponse.actions,
+            relevantMemories,
         });
 
         conversationStore.add({
@@ -328,16 +329,22 @@ app.post("/events", async (req, res) => {
         }
 
         const intents = reactionEngine.evaluate(state);
+        const recentMessages = conversationStore.getRecent(state.player.name, 10);
 
         for (const intent of intents) {
             if (!chatterCooldownStore.canSpeak(state.player.name, intent)) {
                 continue;
             }
 
-            const relevantMemories = longTermMemoryStore.findRelevant(
-                state.player.name,
-                memoryTagsForReaction(intent.reason),
-            );
+            const memoryRecall = await memoryRecallService.recall({
+                playerName: state.player.name,
+                message: reactionMemoryQuery(intent.reason, intent.intent, state),
+                liveState: state,
+                recentMessages,
+                limit: 3,
+            });
+
+            const relevantMemories = memoryRecall.memories;
             recalledMemories.push(...relevantMemories);
 
             actions.push(await reactionSpeechGenerator.generate(
@@ -346,6 +353,7 @@ app.post("/events", async (req, res) => {
                 intent,
                 relevantMemories,
             ));
+
             if (intent.reason === "LOW_FOOD_WITH_HUNTABLE_ANIMAL") {
                 const targetAnimal = intent.context.targetAnimal;
 
@@ -470,6 +478,25 @@ function embedMemoriesInBackground(memories: MemoryRecord[]): void {
             console.warn(`Failed to embed memory ${memory.id}: ${message}`);
         });
     }
+}
+
+function reactionMemoryQuery(reason: string, intent: string, state: ReturnType<LiveStateStore["get"]>): string {
+    const nearbyEntities = state?.nearby.entities.join(", ") || "none";
+    const nearbyBlocks = state?.nearby.blocks
+        .map((block) => block.name)
+        .join(", ") || "none";
+
+    return [
+        `Current Minecraft event: ${reason}.`,
+        `Yuri intent: ${intent}`,
+        `Player health: ${state?.health ?? "unknown"}.`,
+        `Player hunger: ${state?.hunger ?? "unknown"}.`,
+        `Current danger level: ${state?.danger ?? "unknown"}.`,
+        `Nearby entities: ${nearbyEntities}.`,
+        `Nearby blocks: ${nearbyBlocks}.`,
+        `Useful memory tags: ${memoryTagsForReaction(reason).join(", ") || "none"}.`,
+        "Recall past player memories, dangers, preferences, instructions, or places that are relevant to this situation.",
+    ].join("\n");
 }
 
 app.listen(port, () => {

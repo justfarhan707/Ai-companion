@@ -43,6 +43,9 @@ public class YuriActionExecutor {
             if ("stop_action".equals(type)) {
                 executeStopAction(server);
             }
+            if ("go_to_position".equals(type)) {
+                executeGoToPosition(server, action);
+            }
         }
     }
 
@@ -80,6 +83,24 @@ public class YuriActionExecutor {
 
     private void executeStopAction(MinecraftServer server) {
         String message = companionController.stopCurrentAction(server);
+
+        server.getPlayerManager()
+                .broadcast(Text.literal("<Yuri> " + message), false);
+    }
+
+    private void executeGoToPosition(MinecraftServer server, JsonObject action) {
+        if (!action.has("placeName") || !action.has("world")
+                || !action.has("x") || !action.has("y") || !action.has("z")) {
+            return;
+        }
+
+        String placeName = action.get("placeName").getAsString();
+        String world = action.get("world").getAsString();
+        int x = action.get("x").getAsInt();
+        int y = action.get("y").getAsInt();
+        int z = action.get("z").getAsInt();
+
+        String message = companionController.goToPosition(server, placeName, world, x, y, z);
 
         server.getPlayerManager()
                 .broadcast(Text.literal("<Yuri> " + message), false);

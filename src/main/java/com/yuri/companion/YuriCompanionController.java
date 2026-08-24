@@ -24,6 +24,8 @@ public class YuriCompanionController {
 	private UUID huntTargetUuid;
 	private String huntTargetName;
 	private int huntAttackCooldownTicks;
+	private BlockPos moveTargetPos;
+	private String moveTargetPlaceName;
 	private boolean yuriActive;
 	private YuriBackendClient backendClient;
 
@@ -155,6 +157,26 @@ public class YuriCompanionController {
 			return;
 		}
 
+		if (moveTargetPos != null) {
+			double targetX = moveTargetPos.getX() + 0.5;
+			double targetY = moveTargetPos.getY();
+			double targetZ = moveTargetPos.getZ() + 0.5;
+			double targetDistanceSq = yuri.squaredDistanceTo(targetX, targetY, targetZ);
+
+			if (targetDistanceSq <= 4) {
+				server.getPlayerManager()
+						.broadcast(Text.literal("<Yuri> This is " + moveTargetPlaceName + "."), false);
+
+				moveTargetPos = null;
+				moveTargetPlaceName = null;
+				return;
+			}
+
+			yuri.setSitting(false);
+			yuri.getNavigation().startMovingTo(targetX, targetY, targetZ, 1.25);
+			return;
+		}
+
 		double distanceSq = yuri.squaredDistanceTo(owner);
 
 		yuri.setSitting(false);
@@ -174,6 +196,8 @@ public class YuriCompanionController {
 		huntTargetUuid = null;
 		huntTargetName = null;
 		huntAttackCooldownTicks = 0;
+		moveTargetPos = null;
+		moveTargetPlaceName = null;
 
 		if (yuriUuid == null) {
 			return;
@@ -257,6 +281,8 @@ public class YuriCompanionController {
 
 		yuriActive = true;
 		yuri.setSitting(false);
+		moveTargetPos = null;
+		moveTargetPlaceName = null;
 		huntTargetUuid = target.getUuid();
 		huntTargetName = targetName;
 		huntAttackCooldownTicks = 0;
@@ -328,11 +354,13 @@ public class YuriCompanionController {
 			return "I can't find my body right now.";
 		}
 
-		boolean hadTask = huntTargetUuid != null;
+		boolean hadTask = huntTargetUuid != null || moveTargetPos != null;
 
 		huntTargetUuid = null;
 		huntTargetName = null;
 		huntAttackCooldownTicks = 0;
+		moveTargetPos = null;
+		moveTargetPlaceName = null;
 
 		yuri.getNavigation().stop();
 		yuri.setSitting(false);
@@ -343,6 +371,47 @@ public class YuriCompanionController {
 		}
 
 		return "I'm not doing anything urgent right now.";
+	}
+
+	public String goToPosition(MinecraftServer server, String placeName, String world, int x, int y, int z) {
+		if (yuriUuid == null || yuriOwnerUuid == null) {
+			return "I need to be awake before I can lead the way.";
+		}
+
+		ServerPlayerEntity owner = server.getPlayerManager().getPlayer(yuriOwnerUuid);
+
+		if (owner == null) {
+			return "I can't find you right now.";
+		}
+
+		String currentWorld = owner.getWorld().getRegistryKey().getValue().toString();
+
+		if (!currentWorld.equals(world)) {
+			return "I remember " + placeName + ", but it's in another dimension.";
+		}
+
+		CatEntity yuri = findTrackedOrExistingYuri(owner);
+
+		if (yuri == null) {
+			return "I can't find my body right now.";
+		}
+
+		BlockPos target = new BlockPos(x, y, z);
+		double distanceSq = owner.getBlockPos().getSquaredDistance(target);
+
+		if (distanceSq > 256 * 256) {
+			return "I remember " + placeName + ", but it's too far for me to path there right now.";
+		}
+
+		yuriActive = true;
+		yuri.setSitting(false);
+		huntTargetUuid = null;
+		huntTargetName = null;
+		huntAttackCooldownTicks = 0;
+		moveTargetPos = target;
+		moveTargetPlaceName = placeName;
+
+		return "I remember " + placeName + ". Follow me.";
 	}
 
 	}

@@ -57,6 +57,20 @@ export class YuriToolRegistry {
     	requiresApproval: false,
     	parameters: [],
     },
+
+    {
+    	type: "go_to_place",
+    	description: "Move Yuri toward a remembered place such as home, base, mine, farm, village, or portal.",
+    	requiresApproval: false,
+    	parameters: [
+    		{
+    			name: "placeName",
+    			type: "string",
+    			required: true,
+    			description: "Short remembered place name, such as home, base, mine, village, farm, or portal.",
+    		},
+    	],
+    },
 	];
 
 	getAvailableTools(): YuriToolDefinition[] {

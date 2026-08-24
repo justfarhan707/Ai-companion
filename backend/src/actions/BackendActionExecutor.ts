@@ -19,6 +19,7 @@ export class BackendActionExecutor {
 	execute(input: {
 		request: ChatRequest;
 		actions: YuriAction[];
+		relevantMemories?: MemoryRecord[];
 	}): BackendActionExecutionResult {
 		const javaActions: YuriAction[] = [];
 		const memories: MemoryRecord[] = [];
@@ -34,6 +35,24 @@ export class BackendActionExecutor {
 				continue;
 			}
 
+            if (action.type === "go_to_place") {
+            	const memory = this.findPlaceMemory(action.placeName, input.relevantMemories ?? []);
+
+            	if (!memory) {
+            		continue;
+            	}
+
+            	javaActions.push({
+            		type: "go_to_position",
+            		placeName: action.placeName,
+            		world: memory.location.world,
+            		x: memory.location.x,
+            		y: memory.location.y,
+            		z: memory.location.z,
+            	});
+            	continue;
+            }
+
 			javaActions.push(action);
 		}
 
@@ -42,6 +61,20 @@ export class BackendActionExecutor {
         			memories,
         		};
         	}
+
+
+    private findPlaceMemory(placeName: string, memories: MemoryRecord[]): MemoryRecord | undefined {
+    	const normalized = placeName.toLowerCase();
+
+    	return memories.find((memory) =>
+    		(memory.type === "home" || memory.type === "place") &&
+    		(
+    			memory.tags.includes(normalized) ||
+    			memory.summary.toLowerCase().includes(` ${normalized} `) ||
+    			memory.summary.toLowerCase().includes(`${normalized} is at`)
+    		)
+    	);
+    }
 
         	private rememberPlace(request: ChatRequest, placeName: string): MemoryRecord {
         		const now = new Date().toISOString();

@@ -9,7 +9,8 @@ export type RejectedAction = {
 		| "missing_target"
 		| "target_not_huntable"
 		| "target_not_nearby"
-		| "target_too_far";
+		| "target_too_far"
+		| "place_not_remembered";
 };
 
 export type ActionValidationResult = {

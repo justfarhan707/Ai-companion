@@ -91,6 +91,9 @@ export class ActionValidator{
 			};
 		}
 
+        if (action.type === "go_to_place") {
+        	return this.validateGoToPlace(action, context);
+        }
        		return {
        			rejectedAction: {
        				action,
@@ -98,6 +101,60 @@ export class ActionValidator{
        			},
        			};
        	}
+
+       private validateGoToPlace(
+       	action: Record<string, unknown>,
+       	context: PlanningContext,
+       ): { validAction: YuriAction } | { rejectedAction: RejectedAction } {
+       	if (typeof action.placeName !== "string" || action.placeName.trim().length === 0) {
+       		return {
+       			rejectedAction: {
+       				action,
+       				reason: "missing_target",
+       			},
+       		};
+       	}
+
+       	const placeName = action.placeName.trim().toLowerCase();
+
+       		if (placeName.length > 40) {
+        		return {
+        			rejectedAction: {
+        				action,
+        				reason: "invalid_shape",
+        			},
+        		};
+        	}
+
+       	if (!this.findPlaceMemory(placeName, context)) {
+       		return {
+       			rejectedAction: {
+       				action,
+       				reason: "place_not_remembered",
+       			},
+       		};
+       	}
+
+        	return {
+        		validAction: {
+        			type: "go_to_place",
+        			placeName,
+        		},
+        	};
+        }
+
+       private findPlaceMemory(placeName: string, context: PlanningContext): boolean {
+       	const normalized = placeName.toLowerCase();
+
+       	return context.relevantMemories.some((memory) =>
+       		(memory.type === "home" || memory.type === "place") &&
+       		(
+       			memory.tags.includes(normalized) ||
+       			memory.summary.toLowerCase().includes(` ${normalized} `) ||
+       			memory.summary.toLowerCase().includes(`${normalized} is at`)
+       		)
+       	);
+       }
 
        private validateRememberPlace(
        	action: Record<string, unknown>
